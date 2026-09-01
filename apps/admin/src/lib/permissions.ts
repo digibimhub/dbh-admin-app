@@ -3,9 +3,17 @@ import type { PortalRole } from './types';
 /**
  * UI-side capability map.
  *
- * The API enforces authorization regardless — this exists so the interface can
- * HIDE what a role cannot do instead of showing buttons that will 403. Never
- * treat it as a security boundary.
+ * This is a MIRROR of `CAPABILITY_MATRIX` in `packages/shared/src/index.ts`,
+ * which is what the API enforces with `requireCapability` on every mutating
+ * admin route. It is duplicated rather than imported because this app has no
+ * dependency on `@app/shared` — pulling it in would put zod in the browser
+ * bundle for the sake of one table.
+ *
+ * Its job is to HIDE what a role cannot do, so nobody is shown a button that
+ * will 403. It is not the boundary and never was; until the API grew
+ * `requireCapability`, there was no boundary at all and a viewer could do by
+ * request everything this file hides. `tests/e2e/orgs-rbac.spec.ts` walks every
+ * role against the real routes, so the two copies cannot drift in silence.
  *
  *   owner    Everything, including portal users and TOTP resets
  *   admin    Everything except portal user management

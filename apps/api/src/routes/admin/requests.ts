@@ -7,6 +7,8 @@ import { notFound, badRequest, conflict } from '../../lib/errors';
 import {
   assertRoleAssignable, assertSeatAvailable, defaultRoleKey,
 } from '../../lib/seats';
+import { uuidParam } from '../../lib/params';
+import { requireCapability } from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
 
 export const requests = new Hono();
@@ -20,8 +22,8 @@ requests.get('/', async (c) => {
   return c.json({ rows });
 });
 
-requests.post('/:id/approve', async (c) => {
-  const id = c.req.param('id');
+requests.post('/:id/approve', requireCapability('request.review'), async (c) => {
+  const id = uuidParam(c);
   const body = approveRequestSchema.parse(await c.req.json());
   const actor = c.get('portalUser');
 
@@ -85,8 +87,8 @@ requests.post('/:id/approve', async (c) => {
   return c.json({ row: created.row, user: created.user });
 });
 
-requests.post('/:id/reject', async (c) => {
-  const id = c.req.param('id');
+requests.post('/:id/reject', requireCapability('request.review'), async (c) => {
+  const id = uuidParam(c);
   const body = rejectRequestSchema.parse(await c.req.json());
   const actor = c.get('portalUser');
 

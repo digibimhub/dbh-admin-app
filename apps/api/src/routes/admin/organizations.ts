@@ -4,7 +4,7 @@ import { db, schema as s } from '@app/db';
 import { createOrgSchema, patchOrgSchema, orgQuerySchema, reasonSchema } from '@app/shared';
 import { notFound, conflict } from '../../lib/errors';
 import { uuidParam } from '../../lib/params';
-import { requireStepUp } from '../../middleware/auth';
+import { requireStepUp, requireCapability } from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
 
 export const organizations = new Hono();
@@ -122,7 +122,7 @@ organizations.get('/', async (c) => {
   });
 });
 
-organizations.post('/', async (c) => {
+organizations.post('/', requireCapability('org.create'), async (c) => {
   const body = createOrgSchema.parse(await c.req.json());
   const user = c.get('portalUser');
   try {
@@ -181,7 +181,7 @@ organizations.get('/:id', async (c) => {
   });
 });
 
-organizations.patch('/:id', async (c) => {
+organizations.patch('/:id', requireCapability('org.edit'), async (c) => {
   const id = uuidParam(c);
   const body = patchOrgSchema.parse(await c.req.json());
   const [before] = await db.select().from(s.organizations).where(eq(s.organizations.id, id)).limit(1);
@@ -204,7 +204,7 @@ organizations.patch('/:id', async (c) => {
 });
 
 /** Destructive: cuts off every user in the org at their next heartbeat. */
-organizations.post('/:id/suspend', async (c) => {
+organizations.post('/:id/suspend', requireCapability('org.suspend'), async (c) => {
   requireStepUp(c);
   const id = uuidParam(c);
   // A suspension with no recorded reason is the row support cannot explain six
@@ -231,7 +231,7 @@ organizations.post('/:id/suspend', async (c) => {
   return c.json({ row });
 });
 
-organizations.post('/:id/reactivate', async (c) => {
+organizations.post('/:id/reactivate', requireCapability('org.suspend'), async (c) => {
   const id = uuidParam(c);
   const [before] = await db.select().from(s.organizations).where(eq(s.organizations.id, id)).limit(1);
   if (!before) throw notFound();

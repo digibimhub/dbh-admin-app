@@ -3,6 +3,8 @@ import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
 import { deviceQuerySchema, reasonSchema, usageQuerySchema } from '@app/shared';
 import { notFound } from '../../lib/errors';
+import { uuidParam } from '../../lib/params';
+import { requireCapability } from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
 
 export const devices = new Hono();
@@ -41,8 +43,8 @@ devices.get('/', async (c) => {
   return c.json({ rows, total: count?.n ?? 0, page: q.page, pageSize: q.pageSize });
 });
 
-devices.post('/:id/disable', async (c) => {
-  const id = c.req.param('id');
+devices.post('/:id/disable', requireCapability('device.manage'), async (c) => {
+  const id = uuidParam(c);
   const { reason } = reasonSchema.parse(await c.req.json());
   const actor = c.get('portalUser');
 
@@ -65,8 +67,8 @@ devices.post('/:id/disable', async (c) => {
   return c.json({ row });
 });
 
-devices.post('/:id/enable', async (c) => {
-  const id = c.req.param('id');
+devices.post('/:id/enable', requireCapability('device.manage'), async (c) => {
+  const id = uuidParam(c);
   const [before] = await db.select().from(s.devices).where(eq(s.devices.id, id)).limit(1);
   if (!before) throw notFound();
 
@@ -94,7 +96,7 @@ devices.post('/:id/enable', async (c) => {
  * working on that machine last week".
  */
 devices.get('/:id/usage', async (c) => {
-  const id = c.req.param('id');
+  const id = uuidParam(c);
   const { days } = usageQuerySchema.parse({ days: c.req.query('days') ?? undefined });
 
   const [device] = await db.select().from(s.devices).where(eq(s.devices.id, id)).limit(1);

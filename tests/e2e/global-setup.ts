@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { resetSharedState } from './helpers/state';
 
 /**
  * Reseed before the suite runs.
@@ -31,4 +32,9 @@ export default function globalSetup(): void {
     [resolve(root, 'node_modules/tsx/dist/cli.mjs'), resolve(root, 'packages/db/src/seed/index.ts')],
     { cwd: root, stdio: ['ignore', 'ignore', 'inherit'] },
   );
+
+  // The reseed gives every portal user a new id, so a session cached by the
+  // previous run names somebody who no longer exists. Clearing it here is also
+  // what makes the cache safe to reuse across worker restarts within this run.
+  resetSharedState();
 }
