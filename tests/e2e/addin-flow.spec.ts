@@ -1,5 +1,4 @@
-import { test, expect, request, type APIRequestContext } from '@playwright/test';
-import { createHmac } from 'node:crypto';
+import { test, expect, request } from '@playwright/test';
 
 /**
  * The whole add-in lifecycle, against a running stack.
@@ -9,144 +8,16 @@ import { createHmac } from 'node:crypto';
  * token, real seat arithmetic. Nothing is stubbed inside the API — only the
  * identity provider's URL differs, and the API refuses to boot in production
  * if it has been moved. See tests/mock-aps/server.mjs.
- */
-
-const API = process.env.E2E_API_URL ?? 'http://localhost:3002';
-const MOCK = process.env.MOCK_APS_URL ?? 'http://127.0.0.1:4599';
-
-const PORTAL_EMAIL = 'admin@yourco.local';
-const PORTAL_PASSWORD = 'localdev-password';
-const PORTAL_TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
-
-/* ------------------------------------------------------------------ TOTP */
-
-function base32Decode(s: string): Buffer {
-  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = '';
-  for (const ch of s.replace(/=+$/, '').toUpperCase()) {
-    bits += A.indexOf(ch).toString(2).padStart(5, '0');
-  }
-  const out = Buffer.alloc(Math.floor(bits.length / 8));
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2);
-  return out;
-}
-
-function totp(secret: string, at = Date.now()): string {
-  const buf = Buffer.alloc(8);
-  buf.writeBigUInt64BE(BigInt(Math.floor(at / 1000 / 30)));
-  const mac = createHmac('sha1', base32Decode(secret)).update(buf).digest();
-  const off = mac[mac.length - 1]! & 0x0f;
-  const bin = ((mac[off]! & 0x7f) << 24) | (mac[off + 1]! << 16) | (mac[off + 2]! << 8) | mac[off + 3]!;
-  return String(bin % 1_000_000).padStart(6, '0');
-}
-
-/* ------------------------------------------------------------- add-in ---- */
-
-type Identity = {
-  sub: string;
-  email: string;
-  email_verified?: boolean;
-  name?: string;
-};
-
-type Grant =
-  | { status: 'ok'; access_token: string; refresh_token: string; scopes: string[]; role: string }
-  | { status: 'denied'; code: string; message: string; action: string };
-
-/**
- * What LicenseClient.dll does: start, follow the browser handoff, exchange.
  *
- * The redirect chain is followed with plain fetch rather than a browser
- * because that is what the add-in's embedded flow does — it opens a browser,
- * and a loopback listener catches the final redirect.
+ * The sign-in, refresh, TOTP and login helpers live in helpers/portal.ts, so
+ * the portal specs share one login budget with this file rather than opening a
+ * second one of their own.
  */
-async function addinSignIn(api: APIRequestContext, identity: Identity, deviceHash: string): Promise<Grant> {
-  // Who the mock issuer will be for the next authorize call.
-  await api.post(`${MOCK}/__identity`, {
-    data: { email_verified: true, ...identity },
-  });
 
-  const started = await api.post(`${API}/v1/auth/start`, {
-    // The add-in sends this, and the /v1 rate limiter buckets on it — so a
-    // busy workstation cannot exhaust the allowance for a whole office behind
-    // one NAT address. Omitting it here would put every test in one bucket.
-    headers: { 'x-device-hash': deviceHash },
-    data: {
-      device: { deviceHash, machineName: 'E2E-WS', revitVersion: '2026.1', addinVersion: '1.4.2' },
-      redirectPort: 51234,
-    },
-  });
-  expect(started.status(), await started.text()).toBe(200);
-  const { authorize_url } = await started.json() as { authorize_url: string };
+import { API, addinSignIn, portalApi, refresh, unique } from './helpers/portal';
 
-  // The browser leg: authorize -> our callback -> loopback redirect carrying
-  // the handoff. `maxRedirects: 0` lets us read the loopback URL rather than
-  // trying to connect to a listener that only exists inside Revit.
-  const authorized = await api.get(authorize_url, { maxRedirects: 0 });
-  const toCallback = authorized.headers()['location'];
-  expect(toCallback, 'issuer did not redirect back').toBeTruthy();
-
-  const callback = await api.get(toCallback!, { maxRedirects: 0 });
-  const loopback = callback.headers()['location'];
-  expect(loopback, 'callback did not redirect to the loopback listener').toBeTruthy();
-
-  const handoff = new URL(loopback!).searchParams.get('handoff');
-  expect(handoff, 'no handoff in the loopback redirect').toBeTruthy();
-
-  const exchanged = await api.post(`${API}/v1/auth/exchange`, {
-    headers: { 'x-device-hash': deviceHash },
-    data: { handoff },
-  });
-  expect(exchanged.status(), await exchanged.text()).toBe(200);
-  return await exchanged.json() as Grant;
-}
-
-async function refresh(api: APIRequestContext, refreshToken: string, deviceHash: string): Promise<Grant> {
-  const res = await api.post(`${API}/v1/token/refresh`, {
-    headers: { 'x-device-hash': deviceHash },
-    data: {
-      refreshToken,
-      device: { deviceHash, machineName: 'E2E-WS', revitVersion: '2026.1', addinVersion: '1.4.2' },
-      daysSinceLastSuccess: 0,
-    },
-  });
-  expect(res.status(), await res.text()).toBe(200);
-  return await res.json() as Grant;
-}
-
-/* -------------------------------------------------------------- portal --- */
-
-/**
- * One portal login for the whole run, memoised.
- *
- * Two reasons, both real behaviour rather than test friction. An accepted TOTP
- * code is stored as spent so it cannot be replayed, so two logins inside the
- * same 30-second window fail the second one. And logins are rate limited to
- * five per fifteen minutes per email, which a per-test login would exhaust.
- */
-let adminSession: Promise<APIRequestContext> | null = null;
-
-function adminApi(): Promise<APIRequestContext> {
-  adminSession ??= (async () => {
-    const api = await request.newContext();
-    const res = await api.post(`${API}/admin/auth/login`, {
-      data: { email: PORTAL_EMAIL, password: PORTAL_PASSWORD, totp: totp(PORTAL_TOTP_SECRET) },
-    });
-    if (res.status() !== 200) {
-      // Almost always a code already spent in this 30s window. Wait for the
-      // next one rather than failing the suite on a timing detail.
-      await new Promise((r) => setTimeout(r, 31_000 - (Date.now() % 30_000)));
-      const retry = await api.post(`${API}/admin/auth/login`, {
-        data: { email: PORTAL_EMAIL, password: PORTAL_PASSWORD, totp: totp(PORTAL_TOTP_SECRET) },
-      });
-      expect(retry.status(), await retry.text()).toBe(200);
-    }
-    return api;
-  })();
-  return adminSession;
-}
-
-const unique = () => Math.random().toString(36).slice(2, 8);
+/** The owner session this suite has always used, under its original name. */
+const adminApi = () => portalApi('owner');
 
 /* ========================================================== the flows ==== */
 
