@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: dbh-postgres
+    environment:
+      POSTGRES_USER: licensing
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: licensing
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U licensing"]
+      interval: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: dbh-mailpit
+    ports: ["1025:1025", "8025:8025"]
+
+volumes:
+  pgdata:

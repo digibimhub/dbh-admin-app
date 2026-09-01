@@ -1,0 +1,21 @@
+node_modules
+dist
+.next
+.env
+.env.local
+*.tsbuildinfo
+.turbo
+apps/admin/.next
+apps/admin/out
+.DS_Store
+Thumbs.db
+
+# portable local postgres (scripts/db-up.mjs) — binaries + cluster, never committed
+.localdb/
+
+# local dev server logs
+*.log
+
+# Playwright
+test-results/
+playwright-report/

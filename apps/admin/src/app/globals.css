@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Colour tokens are stored as space-separated RGB channels, not hex, so
+ * `tailwind.config.ts` can wrap them as `rgb(var(--x) / <alpha-value>)` and
+ * opacity modifiers keep working.
+ */
+:root {
+  color-scheme: light;
+
+  --paper: 244 246 248;
+  --paper-2: 237 240 244;
+  --card: 255 255 255;
+  --ink: 15 23 42;
+  --ink-2: 71 85 105;
+  /**
+   * Darkened from the prototype's #64748B (100 116 139). That value clears
+   * 4.5:1 on `card` and on nothing else: `paper` is the page ground, the
+   * table `thead` band and the row hover, and `paper-2` backs EmptyState —
+   * so every column header in the product sat at 4.39:1 and EmptyState body
+   * text at 4.16:1. #5F6E85 clears AA on all three grounds (5.18 / 4.78 /
+   * 4.53) and is a ~2% luminance move, invisible beside the original.
+   */
+  --ink-3: 95 110 133;
+  --rule: 227 232 239;
+  --signal: 79 70 229;
+  --signal-soft: 224 231 255;
+  --allow: 21 128 61;
+  --allow-soft: 220 252 231;
+  --deny: 185 28 28;
+  --deny-soft: 254 226 226;
+  --warn: 180 83 9;
+  --warn-soft: 254 243 199;
+}
+
+html, body { background: rgb(var(--paper)); color: rgb(var(--ink)); }
+body { -webkit-font-smoothing: antialiased; }
+input, select, textarea, button { font: inherit; }
+
+*:focus-visible {
+  outline: 2px solid rgb(var(--signal));
+  outline-offset: 2px;
+}
+
+/* Chart labels are SVG <text>, so they cannot take a `tabular-nums` class. */
+svg text { font-variant-numeric: tabular-nums; }
+
+/* Inter ships at 400/500/600 only — keep <b>/<strong> off synthetic 700. */
+b, strong { font-weight: 600; }

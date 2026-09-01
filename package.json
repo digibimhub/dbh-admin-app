@@ -1,0 +1,43 @@
+{
+  "name": "dbh-admin-app",
+  "private": true,
+  "packageManager": "pnpm@10.15.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:api": "pnpm --filter @app/api dev",
+    "dev:admin": "pnpm --filter @app/admin dev",
+    "build": "turbo build",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
+    "keys:gen": "node scripts/gen-keys.mjs",
+    "verify:resolver": "tsx scripts/verify-resolver.ts",
+    "smoke": "node scripts/smoke.mjs",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "aps:login": "node scripts/aps-login.mjs",
+    "db:up": "node scripts/db-up.mjs",
+    "db:down": "node scripts/db-down.mjs",
+    "db:psql": "node scripts/db-psql.mjs",
+    "db:generate": "pnpm --filter @app/db generate",
+    "db:migrate": "pnpm --filter @app/db migrate",
+    "db:seed": "pnpm --filter @app/db seed",
+    "db:reset": "node scripts/db-reset.mjs",
+    "db:rebuild": "node scripts/db-rebuild.mjs",
+    "db:studio": "pnpm --filter @app/db studio",
+    "totp": "node scripts/totp.mjs",
+    "admin:reset-totp": "pnpm --filter @app/api reset-totp",
+    "admin:create-user": "pnpm --filter @app/api create-user",
+    "test:e2e": "playwright test",
+    "mock:aps": "node tests/mock-aps/server.mjs"
+  },
+  "devDependencies": {
+    "@app/core": "workspace:*",
+    "@app/db": "workspace:*",
+    "@app/shared": "workspace:*",
+    "@playwright/test": "^1.62.1",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.38.3",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}
