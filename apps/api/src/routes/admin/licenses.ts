@@ -7,7 +7,7 @@ import {
 } from '@app/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import { uuidParam } from '../../lib/params';
-import { requireStepUp } from '../../middleware/auth';
+import { requireStepUp, requireCapability } from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
 import type { DbConn } from '../../lib/db';
 
@@ -110,7 +110,7 @@ licenses.get('/orgs/:id/license', async (c) => {
   return c.json({ license, seats, events });
 });
 
-licenses.post('/orgs/:id/license', async (c) => {
+licenses.post('/orgs/:id/license', requireCapability('license.manage'), async (c) => {
   const id = uuidParam(c);
   const body = createLicenseSchema.parse(await c.req.json());
   const user = c.get('portalUser');
@@ -158,7 +158,7 @@ licenses.post('/orgs/:id/license', async (c) => {
   }
 });
 
-licenses.patch('/licenses/:id', async (c) => {
+licenses.patch('/licenses/:id', requireCapability('license.manage'), async (c) => {
   const id = uuidParam(c);
   const body = patchLicenseSchema.parse(await c.req.json());
 
@@ -191,7 +191,7 @@ licenses.patch('/licenses/:id', async (c) => {
   return c.json({ row });
 });
 
-licenses.post('/licenses/:id/extend', async (c) => {
+licenses.post('/licenses/:id/extend', requireCapability('license.manage'), async (c) => {
   const id = uuidParam(c);
   const body = extendLicenseSchema.parse(await c.req.json());
   const user = c.get('portalUser');
@@ -232,7 +232,7 @@ licenses.post('/licenses/:id/extend', async (c) => {
   return c.json({ row });
 });
 
-licenses.post('/licenses/:id/suspend', async (c) => {
+licenses.post('/licenses/:id/suspend', requireCapability('license.manage'), async (c) => {
   requireStepUp(c);
   const id = uuidParam(c);
   const { reason } = reasonSchema.parse(await c.req.json());
@@ -271,7 +271,7 @@ licenses.post('/licenses/:id/suspend', async (c) => {
  * operator who suspends a customer by mistake needs the undo more than the
  * safety of not having one.
  */
-licenses.post('/licenses/:id/resume', async (c) => {
+licenses.post('/licenses/:id/resume', requireCapability('license.manage'), async (c) => {
   const id = uuidParam(c);
   const { reason } = reasonSchema.parse(await c.req.json());
 

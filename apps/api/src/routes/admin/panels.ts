@@ -3,6 +3,8 @@ import { asc, eq } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
 import { createPanelSchema, patchPanelSchema } from '@app/shared';
 import { notFound, badRequest } from '../../lib/errors';
+import { requiredParam } from '../../lib/params';
+import { requireCapability } from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
 
 export const panels = new Hono();
@@ -12,7 +14,7 @@ panels.get('/', async (c) => {
   return c.json({ rows });
 });
 
-panels.post('/', async (c) => {
+panels.post('/', requireCapability('panel.manage'), async (c) => {
   const body = createPanelSchema.parse(await c.req.json());
   try {
     const [row] = await db.insert(s.panelDefinitions).values(body).returning();
@@ -30,8 +32,8 @@ panels.post('/', async (c) => {
   }
 });
 
-panels.patch('/:slug', async (c) => {
-  const slug = c.req.param('slug');
+panels.patch('/:slug', requireCapability('panel.manage'), async (c) => {
+  const slug = requiredParam(c, 'slug');
   const body = patchPanelSchema.parse(await c.req.json());
 
   const [before] = await db.select().from(s.panelDefinitions).where(eq(s.panelDefinitions.slug, slug)).limit(1);

@@ -132,6 +132,44 @@ export type AddinTokenClaims = z.infer<typeof addinTokenClaims>;
 export const portalRole = z.enum(['owner', 'admin', 'support', 'viewer']);
 export type PortalRole = z.infer<typeof portalRole>;
 
+/**
+ * What each portal role may do — the single definition, shared by both sides.
+ *
+ * It used to live only in the admin app, where its own comment promised that
+ * "the API enforces authorization regardless". It did not: `/admin/*` was
+ * guarded by a session check and nothing else, so every authenticated portal
+ * user — viewer included — could create organisations, register domains, issue
+ * licences and disable people by calling the API directly. Hiding a button is
+ * not a permission.
+ *
+ * Keeping the matrix here is what stops the two sides drifting: the screen
+ * hides exactly what the route would refuse.
+ *
+ *   owner    Everything, including portal users and TOTP resets
+ *   admin    Everything except portal user management
+ *   support  View all, approve requests, disable devices. No licence or org changes
+ *   viewer   Read only
+ */
+export const CAPABILITIES = [
+  'org.create', 'org.edit', 'org.suspend', 'license.manage', 'domain.manage',
+  'user.manage', 'user.import', 'device.manage', 'request.review',
+  'panel.manage', 'role.manage', 'portal_user.manage',
+] as const;
+
+export type Capability = (typeof CAPABILITIES)[number];
+
+const CAPABILITY_MATRIX: Record<PortalRole, readonly Capability[]> = {
+  owner: CAPABILITIES,
+  admin: CAPABILITIES.filter((c) => c !== 'portal_user.manage'),
+  support: ['request.review', 'device.manage'],
+  viewer: [],
+};
+
+export function can(role: PortalRole | undefined, capability: Capability): boolean {
+  if (!role) return false;
+  return CAPABILITY_MATRIX[role].includes(capability);
+}
+
 export const orgStatus = z.enum(['active', 'suspended']);
 export const licenseMode = z.enum(['internal', 'trial', 'standard']);
 export type LicenseMode = z.infer<typeof licenseMode>;
@@ -152,10 +190,20 @@ export const totpConfirmSchema = z.object({
   totp: z.string().regex(/^\d{6}$/),
 });
 
+/**
+ * `name` trims BEFORE it measures.
+ *
+ * `min(2)` on the raw string counts spaces, so `"   "` was a valid name: the
+ * create route stored it, and the edit form could send it because its own
+ * `minLength={2}` counts them too. The result is a customer that is blank in
+ * every list, every audit row and every renewal email — and a search for it
+ * that can never match. Trimming here also means a pasted `" Acme "` is stored
+ * the way it will be read.
+ */
 export const createOrgSchema = z.object({
-  name: z.string().min(2).max(200),
-  slug: z.string().min(2).max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-  primaryContactEmail: z.string().email().optional(),
+  name: z.string().trim().min(2).max(200),
+  slug: z.string().trim().min(2).max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  primaryContactEmail: z.string().trim().email().optional(),
 });
 
 /** Slug is absent on purpose: it is in URLs and in the audit log. */

@@ -3,7 +3,9 @@ import { and, asc, count, eq, inArray, ne } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
 import { createRoleSchema, patchRoleSchema } from '@app/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
+import { requiredParam } from '../../lib/params';
 import { audit } from '../../middleware/audit';
+import { requireCapability } from '../../middleware/auth';
 
 export const roles = new Hono();
 
@@ -41,7 +43,7 @@ roles.get('/', async (c) => {
   return c.json({ rows: rows.map((r) => ({ ...r, activeMembers: byKey.get(r.key) ?? 0 })) });
 });
 
-roles.post('/', async (c) => {
+roles.post('/', requireCapability('role.manage'), async (c) => {
   const body = createRoleSchema.parse(await c.req.json());
   await assertScopes(body.scopes);
 
@@ -71,8 +73,8 @@ roles.post('/', async (c) => {
  * stores the name — `org_users.role_key`, `license_roles.role_key` and the
  * add-in token all carry the key, and the key never moves.
  */
-roles.patch('/:key', async (c) => {
-  const key = c.req.param('key');
+roles.patch('/:key', requireCapability('role.manage'), async (c) => {
+  const key = requiredParam(c, 'key');
   const body = patchRoleSchema.parse(await c.req.json());
   if (body.scopes) await assertScopes(body.scopes);
 

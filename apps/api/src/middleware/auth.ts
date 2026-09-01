@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
 import { env } from '../env';
 import { unauthorized, forbidden } from '../lib/errors';
-import type { PortalRole } from '@app/shared';
+import { can, type Capability, type PortalRole } from '@app/shared';
 
 export type PortalUser = typeof s.portalUsers.$inferSelect;
 
@@ -57,6 +57,27 @@ export function requireRole(...roles: PortalRole[]) {
   return async (c: Context, next: Next) => {
     const user = c.get('portalUser');
     if (!user || !roles.includes(user.role)) throw forbidden();
+    await next();
+  };
+}
+
+/**
+ * Refuse a request the caller's role does not carry the capability for.
+ *
+ * Every mutating admin route goes through one of these. Reads are deliberately
+ * not gated: a viewer is a role that sees everything and changes nothing, so
+ * the boundary belongs on the writes.
+ *
+ * The message names the capability on purpose. This is an authenticated
+ * operator being told which permission they are missing, not an anonymous
+ * caller being given a map of the system.
+ */
+export function requireCapability(capability: Capability) {
+  return async (c: Context, next: Next) => {
+    const user = c.get('portalUser');
+    if (!can(user?.role, capability)) {
+      throw forbidden(`Your role does not allow this. Required capability: ${capability}`);
+    }
     await next();
   };
 }

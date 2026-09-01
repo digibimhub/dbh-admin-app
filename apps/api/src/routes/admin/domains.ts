@@ -5,6 +5,7 @@ import { createDomainSchema, reasonSchema } from '@app/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import { uuidParam } from '../../lib/params';
 import { audit } from '../../middleware/audit';
+import { requireCapability } from '../../middleware/auth';
 
 export const domains = new Hono();
 
@@ -28,7 +29,7 @@ domains.get('/orgs/:id/domains', async (c) => {
  * The value is globally unique, so a domain either belongs to this
  * organisation or to exactly one other, and there is no third case.
  */
-domains.post('/orgs/:id/domains', async (c) => {
+domains.post('/orgs/:id/domains', requireCapability('domain.manage'), async (c) => {
   const id = uuidParam(c);
   const body = createDomainSchema.parse(await c.req.json());
   const value = body.value.trim().toLowerCase();
@@ -90,7 +91,7 @@ domains.post('/orgs/:id/domains', async (c) => {
  * Removing a domain stops auto-provisioning for everyone on it, so it takes a
  * reason for the same reason a suspension does.
  */
-domains.delete('/domains/:id', async (c) => {
+domains.delete('/domains/:id', requireCapability('domain.manage'), async (c) => {
   const id = uuidParam(c);
   const { reason } = reasonSchema.parse(await c.req.json().catch(() => ({})));
 

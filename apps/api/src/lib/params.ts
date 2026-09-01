@@ -18,3 +18,19 @@ export function uuidParam(c: Context, name = 'id'): string {
   }
   return value;
 }
+
+/**
+ * A route parameter that is not a uuid — a role key, a panel slug.
+ *
+ * Hono only infers `:name` into the context type on the two-argument form of a
+ * route, so adding a `requireCapability` guard in front of a handler widens
+ * `c.req.param('key')` to `string | undefined`. That is a typing artefact
+ * rather than a real possibility — the route cannot match without the segment —
+ * but narrowing it here beats a cast, and it gives a 400 rather than a crash if
+ * the route is ever mounted somewhere the segment is optional.
+ */
+export function requiredParam(c: Context, name: string): string {
+  const value = c.req.param(name);
+  if (!value) throw badRequest(`"${name}" is required`, { [name]: 'missing' });
+  return value;
+}

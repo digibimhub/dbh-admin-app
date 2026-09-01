@@ -70,6 +70,18 @@ export const DEV_TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
 export const DEV_PASSWORD = 'localdev-password';
 export const DEV_OWNER_EMAIL = 'admin@yourco.local';
 
+/**
+ * One portal user per role that changes what the interface offers.
+ *
+ * `owner` and `admin` differ only over portal user management, which is not an
+ * organisation screen — but `support` and `viewer` see the Organisations tab
+ * with every mutating control removed, and that is a claim worth a test rather
+ * than a reading of the capability matrix. They share the owner's password and
+ * TOTP secret; nothing here is a credential anywhere but this machine.
+ */
+export const DEV_SUPPORT_EMAIL = 'support@yourco.local';
+export const DEV_VIEWER_EMAIL = 'viewer@yourco.local';
+
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const daysFromNow = (n: number) => {
   const d = new Date();
@@ -120,6 +132,27 @@ async function main() {
     totpEnrolledAt: new Date(),
   }).returning();
   if (!owner) throw new Error('failed to insert owner');
+
+  await db.insert(s.portalUsers).values([
+    {
+      email: DEV_SUPPORT_EMAIL,
+      displayName: 'Local Support',
+      role: 'support',
+      passwordHash,
+      totpSecretEnc: encryptAtRest(DEV_TOTP_SECRET),
+      totpEnabled: true,
+      totpEnrolledAt: new Date(),
+    },
+    {
+      email: DEV_VIEWER_EMAIL,
+      displayName: 'Local Viewer',
+      role: 'viewer',
+      passwordHash,
+      totpSecretEnc: encryptAtRest(DEV_TOTP_SECRET),
+      totpEnabled: true,
+      totpEnrolledAt: new Date(),
+    },
+  ]);
 
   /* ------------------------------------------------ organisations ------- */
 
@@ -297,6 +330,8 @@ async function main() {
 
   console.log(`
   portal owner   ${DEV_OWNER_EMAIL} / ${DEV_PASSWORD}
+  portal support ${DEV_SUPPORT_EMAIL} / ${DEV_PASSWORD}
+  portal viewer  ${DEV_VIEWER_EMAIL} / ${DEV_PASSWORD}
   organisations  3 (standard, trial, internal)
   people         ${members.length} across 3 organisations
   devices        ${machines.length}

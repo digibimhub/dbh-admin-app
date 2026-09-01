@@ -14,6 +14,7 @@ import { parseCsv, toObject } from '../../lib/csv';
 import { uuidParam } from '../../lib/params';
 import { audit } from '../../middleware/audit';
 import { env } from '../../env';
+import { requireCapability } from '../../middleware/auth';
 import {
   assertRoleAssignable, assertSeatAvailable, defaultRoleKey,
 } from '../../lib/seats';
@@ -62,7 +63,7 @@ users.get('/', async (c) => {
   return c.json({ rows, total: total?.n ?? 0, page: q.page, pageSize: q.pageSize });
 });
 
-users.post('/', async (c) => {
+users.post('/', requireCapability('user.manage'), async (c) => {
   const body = createUserSchema.parse(await c.req.json());
   const actor = c.get('portalUser');
   const roleKey = body.roleKey ?? await defaultRoleKey(db);
@@ -212,7 +213,7 @@ async function planImport(orgId: string, csv: string): Promise<PlannedImport> {
 }
 
 /** POST /admin/users/import/preview — CSV to diff. Writes nothing. */
-users.post('/import/preview', async (c) => {
+users.post('/import/preview', requireCapability('user.import'), async (c) => {
   const body = importPreviewSchema.parse(await c.req.json());
   const [org] = await db.select().from(s.organizations).where(eq(s.organizations.id, body.orgId)).limit(1);
   if (!org) throw notFound('Organisation not found');
@@ -236,7 +237,7 @@ users.post('/import/preview', async (c) => {
 });
 
 /** POST /admin/users/import/commit — applies a previewed diff. */
-users.post('/import/commit', async (c) => {
+users.post('/import/commit', requireCapability('user.import'), async (c) => {
   const body = importCommitSchema.parse(await c.req.json());
   const actor = c.get('portalUser');
 
@@ -358,7 +359,7 @@ users.get('/:id/devices', async (c) => {
   return c.json({ rows, total: rows.length });
 });
 
-users.patch('/:id', async (c) => {
+users.patch('/:id', requireCapability('user.manage'), async (c) => {
   const id = uuidParam(c);
   const body = patchUserSchema.parse(await c.req.json());
   const [before] = await db.select().from(s.orgUsers).where(eq(s.orgUsers.id, id)).limit(1);
@@ -401,7 +402,7 @@ users.patch('/:id', async (c) => {
  * The move frees the old role's seat and takes one in the new role in this
  * single statement, because occupancy is counted rather than stored.
  */
-users.post('/:id/role', async (c) => {
+users.post('/:id/role', requireCapability('user.manage'), async (c) => {
   const id = uuidParam(c);
   const body = setMemberRoleSchema.parse(await c.req.json());
   const [before] = await db.select().from(s.orgUsers).where(eq(s.orgUsers.id, id)).limit(1);
@@ -437,7 +438,7 @@ users.post('/:id/role', async (c) => {
  * role at the same time, which is how an operator resolves "the User seats are
  * full but there is room in Coordinator".
  */
-users.post('/:id/approve', async (c) => {
+users.post('/:id/approve', requireCapability('user.manage'), async (c) => {
   const id = uuidParam(c);
   const body = setMemberRoleSchema.partial().parse(await c.req.json().catch(() => ({})));
 
@@ -469,7 +470,7 @@ users.post('/:id/approve', async (c) => {
   return c.json({ row });
 });
 
-users.post('/:id/disable', async (c) => {
+users.post('/:id/disable', requireCapability('user.manage'), async (c) => {
   const id = uuidParam(c);
   // A reason is required: it lands in audit_log, and a disable with no
   // recorded reason is the row nobody can explain six months later.
@@ -509,7 +510,7 @@ users.post('/:id/disable', async (c) => {
  * Re-enabling consumes a seat, so it can fail where disabling never does. The
  * seat they vacated may well have been taken while they were disabled.
  */
-users.post('/:id/enable', async (c) => {
+users.post('/:id/enable', requireCapability('user.manage'), async (c) => {
   const id = uuidParam(c);
   const [before] = await db.select().from(s.orgUsers).where(eq(s.orgUsers.id, id)).limit(1);
   if (!before) throw notFound();
