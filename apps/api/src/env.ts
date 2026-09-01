@@ -46,6 +46,34 @@ function envDevSecret(): string | undefined {
   return 'local-dev-portal-secret-not-for-production-use';
 }
 
+/**
+ * Brute-force budgets.
+ *
+ * The production numbers are the ones from the spec. On a developer machine
+ * they are raised to the point of not firing, because there the limiter only
+ * ever locks you out of your own laptop: a mistyped TOTP costs one of five
+ * attempts, `pnpm smoke` spends four, and the portal shows the same generic
+ * message for a 429 as for a wrong password — so the usual outcome is fifteen
+ * minutes spent believing login is broken.
+ *
+ * Gated on `isDev`, the same switch that already decides whether
+ * `/admin/auth/dev-hint` hands out the password and whether the session
+ * cookie demands HTTPS. Anything running with NODE_ENV unset is already
+ * giving away credentials on request; the rate limit is not what is holding
+ * it together.
+ *
+ * The account lockout is the sharper edge of the two: it lives in
+ * `portal_users.locked_until`, so unlike the in-memory limiter it survives
+ * the API restart that AGENTS.md recommends as the way out.
+ */
+export const limits = {
+  loginPerEmail: env.isDev ? 100 : 5,
+  loginPerIp: env.isDev ? 200 : 20,
+  lockoutAfter: env.isDev ? 50 : 10,
+  /** `/admin/*` per IP per minute. The portal spends several on every page. */
+  adminPerMinute: env.isDev ? 2000 : 120,
+};
+
 export function ensureEncryptionKey(): string {
   if (env.encryptionKey) return env.encryptionKey;
   if (!env.isDev) throw new Error('ENCRYPTION_KEY is required');

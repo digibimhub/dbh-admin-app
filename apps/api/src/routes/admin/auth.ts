@@ -7,7 +7,7 @@ import {
   signPortalJwt, totpUri, verifyPassword, verifyTotp, verifyTotpWithReplay,
 } from '@app/core';
 import { portalLoginSchema, totpConfirmSchema } from '@app/shared';
-import { env } from '../../env';
+import { env, limits } from '../../env';
 import { invalidCredentials, unauthorized, badRequest } from '../../lib/errors';
 import { audit } from '../../middleware/audit';
 import { clientIp, consumeRateLimit } from '../../middleware/ratelimit';
@@ -26,11 +26,17 @@ const COOKIE_OPTS = {
   maxAge: 8 * 3600,
 };
 
-/** Brute-force budget from the spec: 5 per email / 15 min, 20 per IP. */
+/**
+ * Brute-force budget from the spec: 5 per email / 15 min, 20 per IP.
+ *
+ * The counts come from `limits` in env.ts, which raises them on a developer
+ * machine. The windows do not change: a shorter one in dev would make the
+ * behaviour differ in kind rather than in degree.
+ */
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_MAX_PER_EMAIL = 5;
-const LOGIN_MAX_PER_IP = 20;
-const LOCKOUT_AFTER = 10;
+const LOGIN_MAX_PER_EMAIL = limits.loginPerEmail;
+const LOGIN_MAX_PER_IP = limits.loginPerIp;
+const LOCKOUT_AFTER = limits.lockoutAfter;
 const LOCKOUT_MS = 15 * 60 * 1000;
 
 type PortalUserRow = typeof s.portalUsers.$inferSelect;

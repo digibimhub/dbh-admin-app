@@ -3,7 +3,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
-import { assertApsHostsAreAutodesk, env, ensureEncryptionKey } from './env';
+import { assertApsHostsAreAutodesk, env, ensureEncryptionKey, limits } from './env';
 import { errorHandler, requestId } from './middleware/error';
 import { rateLimit, clientIp } from './middleware/ratelimit';
 import { requireSession } from './middleware/auth';
@@ -80,7 +80,7 @@ app.route('/v1/telemetry', addinTelemetry);
 
 /* -------------------------------------------------------------- admin API */
 
-app.use('/admin/*', rateLimit({ windowMs: 60_000, max: 120, key: clientIp, bucket: 'admin' }));
+app.use('/admin/*', rateLimit({ windowMs: 60_000, max: limits.adminPerMinute, key: clientIp, bucket: 'admin' }));
 app.use('/admin/*', requireSession);
 // Auto-writes audit_log on every non-GET. Routes that call audit() supply
 // before/after; this is the safety net for anything that forgets.
