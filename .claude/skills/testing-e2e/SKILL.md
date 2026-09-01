@@ -111,6 +111,76 @@ behind. The helper clears all six boxes first (the login page prefills them from
   expose proper roles and labels.
 - A failure here means a real regression: `retries: 0` is deliberate.
 
+## The mock add-in — `tests/mock-addin`
+
+A web mock of the Revit ribbon, driven by `addin-journey.spec.ts`. It renders
+what the API returns and decides nothing itself: every panel is a membership test
+against the `scopes` array the API signed.
+
+Four groups over the six catalogue slugs, which are compiled into shipped DLLs
+and cannot be renamed:
+
+| Group | Slugs | Visible to |
+| --- | --- | --- |
+| Protect | `troubleshoot` | admin |
+| Review | `coordination`, `parameters`, `excel` | admin, coordinator |
+| Produce | `cleanup` | everyone |
+| General | `general` (never gated) | everyone, always — it carries Sign in |
+
+### How its sign-in works
+
+It does the `/v1` calls **server-side**, because the API's CORS allowlist is the
+portal origin only and does not accept `x-device-hash`. A browser page on
+127.0.0.1:4600 therefore cannot call `/v1` at all. The browser only navigates:
+
+```
+POST /__signin (same origin)  ->  mock tells the issuer who is signing in,
+                                  then POSTs /v1/auth/start with
+                                  redirectPort = its own port
+browser -> authorize (:4599) -> 302 -> :3002/v1/auth/callback
+        -> 302 -> 127.0.0.1:4600/callback?result=…&handoff=…
+             -> mock POSTs /v1/auth/exchange, stores the grant, renders
+```
+
+That is what the real add-in does — open a browser, catch the redirect on a
+loopback listener — so this process **is** that listener.
+
+`POST /__refresh` is the daily check (`/v1/token/refresh`), surfaced as the
+"Check licence" button. `GET /__state` returns the grant as JSON.
+
+Click through it by hand with `pnpm mock:addin`, but note it defaults to the
+E2E api on :3002, which only exists while Playwright is running.
+
+## Cleaning up after a run
+
+`globalTeardown` deletes the organisations the run created — tracked ids only,
+never a `LIKE 'E2E%'` sweep, because several matrix cases are deliberately named
+`Ab`, `Min Slug` and two hundred x's, and a pattern wide enough to catch those
+would catch a real customer.
+
+**If your spec creates an organisation, track it.** `createOrg` does it for you;
+after the Add organisation dialog, call `trackOrg(id)` with the id from the URL;
+after a direct `POST /admin/orgs`, call `trackOrg(row.id)`.
+
+`E2E_KEEP_DATA=1` skips teardown when a failure is worth inspecting. The demo
+runner sets it, because the point of watching a run is to look at what it made.
+
+## Rate limits are raised on a developer machine
+
+`limits` in `apps/api/src/env.ts` gates every brute-force budget on `isDev`:
+login is 100 per email (5 in production), `/admin/*` is 2000 per minute per IP
+(120), and the account lockout trips at 50 failures (10). On localhost the
+limiter only ever locks you out of your own laptop, and the portal shows the same
+generic message for a 429 as for a wrong password.
+
+Two consequences for tests. A UI-heavy spec no longer 429s whichever spec runs
+next. And `orgs-login.spec.ts`'s skip-on-429 branch is now effectively dead
+locally — which is the point: the report called out that "a skip is not a pass".
+
+The **account lockout** still lives in `portal_users.locked_until`, so unlike the
+in-memory limiter it survives an API restart. Clear it with `pnpm db:seed` or by
+setting `failed_attempts = 0, locked_until = null`.
+
 ## Running a subset
 
 ```bash
