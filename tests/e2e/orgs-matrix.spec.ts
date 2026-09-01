@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { API, createOrg, portalApi, unique } from './helpers/portal';
+import { API, createOrg, portalApi, trackOrg, unique } from './helpers/portal';
 
 /**
  * The input matrix for organisations and domains.
@@ -65,6 +65,14 @@ test.describe('organisation input matrix', () => {
     test(`create: ${c.what} → ${c.status}`, async () => {
       const api = await portalApi('owner');
       const res = await api.post(`${API}/admin/orgs`, { data: c.body });
+      // Nine of these cases legitimately create an organisation, several with
+      // names chosen to be awkward rather than recognisable - `Ab`, `Min Slug`,
+      // two hundred x's. Untracked, they are what left sixteen rows behind
+      // after every run and made the Organisations list unreadable.
+      if (res.status() === 201) {
+        const { row } = await res.json() as { row: { id: string } };
+        trackOrg(row.id);
+      }
       expect(res.status(), `${c.what}: ${await res.text()}`).toBe(c.status);
     });
   }

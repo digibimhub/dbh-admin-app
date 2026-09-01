@@ -57,3 +57,27 @@ export function lastCounter(email: string): number {
 export function recordCounter(email: string, counter: number): void {
   writeJson(`totp-${encodeURIComponent(email)}.json`, { counter });
 }
+
+/**
+ * Organisations this run created, so global teardown can remove exactly those.
+ *
+ * The suite used to rely entirely on the truncate that global SETUP performs,
+ * which cleans up *before* the next run rather than after this one — so a
+ * finished run left sixteen organisations behind, and they stayed until
+ * somebody ran the suite again. `orgs-matrix.spec.ts` accounts for nine of
+ * them, including a name of two hundred characters that is a genuinely useful
+ * boundary case and a genuinely unhelpful thing to leave in a list.
+ *
+ * Recorded here rather than in a spec-scoped array for the usual reason: a
+ * failed test takes its worker with it, and an id only held in module scope
+ * dies with it and is never cleaned up.
+ */
+export function recordCreatedOrg(id: string): void {
+  const ids = createdOrgIds();
+  if (ids.includes(id)) return;
+  writeJson('created-orgs.json', { ids: [...ids, id] });
+}
+
+export function createdOrgIds(): string[] {
+  return readJson<{ ids: string[] }>('created-orgs.json')?.ids ?? [];
+}

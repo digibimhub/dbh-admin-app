@@ -12,6 +12,9 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/e2e',
   globalSetup: './tests/e2e/global-setup.ts',
+  // Setup truncates before the run; this removes what the run created after it,
+  // so the database a developer comes back to is the seeded one.
+  globalTeardown: './tests/e2e/global-teardown.ts',
   // Serial. The specs share one seeded database and assert on seat counts, so
   // two of them running at once would race over the same seats.
   workers: 1,
@@ -23,6 +26,10 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: process.env.E2E_ADMIN_URL ?? 'http://localhost:3000',
+    // Nonzero only for the demo runner, which is there to be watched. Every
+    // Playwright action pauses by this much, so it is a debugging aid, not a
+    // fix for a flaky wait.
+    launchOptions: { slowMo: Number(process.env.E2E_SLOWMO ?? 0) },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
@@ -59,6 +66,24 @@ export default defineConfig({
         // Nothing scheduled: the suite asserts on counts, and a job firing
         // mid-run would move them underneath it.
         ENABLE_JOBS: 'false',
+      },
+    },
+    /**
+     * The mock ribbon, which is also the add-in's loopback listener.
+     *
+     * Safe to adopt an already-running one (`pnpm mock:addin`) because it holds
+     * only the current sign-in, and the first thing any spec does is sign in.
+     * It is pointed at the E2E API on 3002, not the developer's own on 3001.
+     */
+    {
+      command: 'node tests/mock-addin/server.mjs',
+      url: 'http://127.0.0.1:4600/__health',
+      reuseExistingServer: true,
+      stdout: 'ignore',
+      env: {
+        MOCK_ADDIN_PORT: '4600',
+        E2E_API_URL: 'http://localhost:3002',
+        MOCK_APS_URL: 'http://127.0.0.1:4599',
       },
     },
   ],

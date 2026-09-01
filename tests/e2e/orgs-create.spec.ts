@@ -1,5 +1,5 @@
 import { test, expect } from './helpers/fixtures';
-import { unique } from './helpers/portal';
+import { trackOrg, unique } from './helpers/portal';
 
 /**
  * The Add organisation dialog.
@@ -50,6 +50,9 @@ test.describe('add organisation', () => {
 
     await dialog.getByRole('button', { name: 'Create organisation' }).click();
     await page.waitForURL(/\/orgs\/[0-9a-f-]{36}$/);
+    // Created through the dialog, so the id is only in the URL; global teardown
+    // removes exactly what it has been told about.
+    trackOrg(page.url().split('/').pop()!);
 
     await expect(page.getByRole('heading', { name: new RegExp(`E2E Create ${tag}`) })).toBeVisible();
     await expect(page.getByText(`e2e-create-${tag}`).first()).toBeVisible();

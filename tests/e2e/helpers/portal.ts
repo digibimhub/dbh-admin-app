@@ -1,7 +1,7 @@
 import { expect, request, type APIRequestContext, type Cookie } from '@playwright/test';
 import { createHmac } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { lastCounter, recordCounter, storageStatePath } from './state';
+import { lastCounter, recordCounter, recordCreatedOrg, storageStatePath } from './state';
 
 /**
  * Everything the portal specs need in order to be somebody, plus the add-in
@@ -216,6 +216,17 @@ export async function refresh(
 
 export const unique = () => Math.random().toString(36).slice(2, 8);
 
+/**
+ * Register an organisation for removal when the run ends.
+ *
+ * `createOrg` does this for you. Call it by hand after creating one through the
+ * dialog, where the id arrives in the URL rather than in a response body —
+ * otherwise that organisation is the one thing the run leaves behind.
+ */
+export function trackOrg(id: string): void {
+  recordCreatedOrg(id);
+}
+
 /** Create an organisation out of band, for specs whose subject is not the dialog. */
 export async function createOrg(
   api: APIRequestContext,
@@ -224,5 +235,6 @@ export async function createOrg(
   const res = await api.post(`${API}/admin/orgs`, { data: fields });
   expect(res.status(), await res.text()).toBe(201);
   const { row } = await res.json() as { row: { id: string; name: string; slug: string } };
+  trackOrg(row.id);
   return row;
 }

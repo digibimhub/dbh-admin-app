@@ -1,6 +1,6 @@
 import { test, expect } from './helpers/fixtures';
 import {
-  addinSignIn, freshTotp, PORTAL_EMAIL, portalApi, unique, type Grant,
+  addinSignIn, freshTotp, PORTAL_EMAIL, portalApi, trackOrg, unique, type Grant,
 } from './helpers/portal';
 import { enterTotp } from './helpers/ui';
 
@@ -35,6 +35,9 @@ test('an operator can take a new customer from nothing to a working sign-in', as
 
   await page.waitForURL(/\/orgs\/[0-9a-f-]{36}$/);
   orgId = page.url().split('/').pop()!;
+  // Created through the dialog, so the id arrives in the URL rather than from
+  // `createOrg` — global teardown only removes what it has been told about.
+  trackOrg(orgId);
 
   // Before anything else, the header says why nobody can sign in yet.
   await expect(page.locator('dl').first()).toContainText('none');

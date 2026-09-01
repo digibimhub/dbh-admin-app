@@ -34,11 +34,17 @@ test.describe('signing in for real', () => {
       page.waitForResponse((r) => r.url().includes('/admin/auth/login')),
       page.getByRole('button', { name: 'Continue' }).click(),
     ]);
+    const status = login.status();
     test.skip(
-      login.status() === 429,
+      status === 429,
       'the login rate limiter is hot for this email — restart the API to clear it',
     );
-    expect(login.status(), await login.text()).toBe(200);
+    // The body is read ONLY on failure. A successful login navigates away
+    // immediately, and `response.text()` on a navigated-away-from response
+    // throws — so passing it eagerly as the assertion message turned every
+    // successful run into a failure. Only a cold rate limiter ever got here
+    // to find out.
+    expect(login.status(), status === 200 ? 'ok' : await login.text()).toBe(200);
 
     await page.waitForURL(/localhost:3000\/$/);
     // The dashboard has a nav link and a summary card with the same name.
