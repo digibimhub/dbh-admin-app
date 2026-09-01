@@ -20,10 +20,23 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertLocalDatabase } from './local-only.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const assumeYes = args.includes('--yes') || args.includes('-y');
+
+/** The DATABASE_URL as written, for the locality check. */
+function rawDatabaseUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  for (const file of ['.env.local', '.env']) {
+    const p = path.join(ROOT, file);
+    if (!fs.existsSync(p)) continue;
+    const m = fs.readFileSync(p, 'utf8').match(/^DATABASE_URL=(.*)$/m);
+    if (m) return m[1].trim().replace(/^["']|["']$/g, '');
+  }
+  return undefined;
+}
 
 /** Just enough .env parsing to name the target in the prompt. Never trusted for connecting. */
 function databaseLabel() {
@@ -62,6 +75,10 @@ async function main() {
     console.error('db:reset refuses to run with NODE_ENV=production.');
     process.exit(1);
   }
+
+  // truncateAll() checks this too, but failing here gives a clearer message
+  // and never opens a connection to a machine that is not this one.
+  assertLocalDatabase(rawDatabaseUrl() ?? '', 'db:reset');
 
   console.log('');
   console.log(`  This TRUNCATES every table in ${databaseLabel()}.`);

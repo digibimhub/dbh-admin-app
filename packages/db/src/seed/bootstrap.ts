@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { assertLocalDatabase } from '../local-only';
 import { db, type Db } from '../client';
 import * as s from '../schema';
 
@@ -97,6 +98,9 @@ export const DEFAULT_ROLES = [
  * point at parents that were truncated underneath them. Seventeen tables.
  */
 export async function truncateAll(conn: Db = db): Promise<void> {
+  // Every destructive path — db:seed, db:reset and the E2E reseed — funnels
+  // through here, so this is the one place the check has to be.
+  assertLocalDatabase(process.env.DATABASE_URL ?? '', 'Truncating the database');
   await conn.execute(sql`
     TRUNCATE usage_daily, access_requests, addin_sessions, oauth_states,
              devices, org_users, license_events, license_roles, licenses,
