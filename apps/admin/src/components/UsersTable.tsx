@@ -71,11 +71,16 @@ export function UsersTable({ orgId, toolbar, reloadKey }: {
   const columns: Column<UserRow>[] = [
     {
       key: 'name', header: 'Name',
+      // Bounded for the same reason as the organisation name: `truncate` only
+      // ellipsises inside a box that has a width, so an unusually long name or
+      // address would otherwise set the column width for every other row.
       cell: (r) => (
-        <div className="min-w-0">
-          <div className="font-medium truncate">{r.user.displayName ?? r.user.email ?? '—'}</div>
+        <div className="min-w-0 max-w-[20rem]">
+          <div className="font-medium truncate" title={r.user.displayName ?? r.user.email ?? undefined}>
+            {r.user.displayName ?? r.user.email ?? '—'}
+          </div>
           {r.user.displayName && r.user.email && (
-            <div className="text-micro text-ink-3 truncate">{r.user.email}</div>
+            <div className="text-micro text-ink-3 truncate" title={r.user.email}>{r.user.email}</div>
           )}
         </div>
       ),

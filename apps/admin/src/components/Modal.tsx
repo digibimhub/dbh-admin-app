@@ -21,6 +21,7 @@ export function Modal({ open, title, onClose, children, wide, variant = 'center'
   variant?: 'center' | 'drawer';
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const restoreTo = useRef<HTMLElement | null>(null);
 
   const trap = useCallback((e: KeyboardEvent) => {
@@ -56,7 +57,16 @@ export function Modal({ open, title, onClose, children, wide, variant = 'center'
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    const firstField = panel.current?.querySelector<HTMLElement>(FOCUSABLE);
+    /*
+     * The first thing in the BODY, not the first thing in the panel.
+     *
+     * Searching the whole panel always found the header's Close button, because
+     * it comes first in the DOM — so every dialog opened with focus on the way
+     * out of it. Falling back to the panel keeps a dialog with no focusable
+     * content (a bare confirmation) from leaving focus outside the trap.
+     */
+    const firstField = body.current?.querySelector<HTMLElement>(FOCUSABLE)
+      ?? panel.current?.querySelector<HTMLElement>(FOCUSABLE);
     firstField?.focus();
 
     return () => {
@@ -102,7 +112,7 @@ export function Modal({ open, title, onClose, children, wide, variant = 'center'
             Close
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div ref={body} className="p-5">{children}</div>
       </div>
     </div>
   );

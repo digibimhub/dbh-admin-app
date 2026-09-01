@@ -59,10 +59,23 @@ export default function OrgsPage() {
   const columns: Column<OrgListRow>[] = [
     {
       key: 'name', header: 'Name',
+      /*
+       * Bounded, or one row decides the width of the whole table.
+       *
+       * `truncate` is `white-space: nowrap` plus an ellipsis, and it only
+       * ellipsises inside a box that already has a width. A name at the
+       * schema maximum of 200 characters — with no spaces in it, so there is
+       * nothing to wrap on — makes an auto-layout cell grow to fit, and every
+       * other column is pushed out into the horizontal scroll. The name is
+       * the one column worth spending width on, but not all of it.
+       *
+       * `title` because a truncated name is hidden information, and the full
+       * value should still be readable without opening the row.
+       */
       cell: (r) => (
-        <div className="min-w-0">
-          <div className="font-medium truncate">{r.name}</div>
-          <div className="font-mono text-micro text-ink-3 truncate">{r.slug}</div>
+        <div className="min-w-0 max-w-[22rem]">
+          <div className="font-medium truncate" title={r.name}>{r.name}</div>
+          <div className="font-mono text-micro text-ink-3 truncate" title={r.slug}>{r.slug}</div>
         </div>
       ),
       csv: (r) => `${r.name} (${r.slug})`,
@@ -191,6 +204,21 @@ function CreateOrgDialog({ open, onClose, onCreated }: {
   const [contactEmail, setContactEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * Opening is what clears it, not closing.
+   *
+   * The fields used to be reset only on a SUCCESSFUL create, so cancelling left
+   * them behind and the next Add organisation opened on the abandoned draft —
+   * including the error from a slug clash the operator had walked away from.
+   * DangerDialog has always reset on open; these two dialogs disagreeing about
+   * it was the bug.
+   */
+  useEffect(() => {
+    if (!open) return;
+    setName(''); setSlug(''); setSlugTouched(false);
+    setContactEmail(''); setError(null); setBusy(false);
+  }, [open]);
 
   function suggestSlug(value: string) {
     return value.toLowerCase().trim()
