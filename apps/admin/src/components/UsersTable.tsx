@@ -10,7 +10,7 @@ import {
 } from '@/lib/types';
 import { DataTable, PAGE_SIZE, Pagination, type Column } from './DataTable';
 import {
-  Button, ErrorNote, Note, Pill, Select, StatusPill, TextInput, TimeAgo,
+  Button, ErrorNote, Note, Pill, SEARCH_FIELD, Select, StatusPill, TextInput, TimeAgo,
 } from './ui';
 
 const FILTER_DEFAULTS = { q: '', org: '', role: '', status: '', source: '' };
@@ -142,7 +142,7 @@ export function UsersTable({ orgId, toolbar, reloadKey }: {
               placeholder="Search name or email"
               defaultValue={values.q}
               onKeyDown={(e) => { if (e.key === 'Enter') set({ q: (e.target as HTMLInputElement).value }); }}
-              className="!w-auto flex-1 min-w-[200px]"
+              className={SEARCH_FIELD}
               aria-label="Search users"
             />
             {!orgId && (
@@ -182,9 +182,8 @@ export function UsersTable({ orgId, toolbar, reloadKey }: {
         pagination={<Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onPage={(p) => set({ page: p })} />}
       />
       <Note>
-        Role and status are changed on an organisation&apos;s People tab, where the seat counts they
-        consume are on screen. Both filters are applied by the API, so they narrow the whole set
-        rather than the loaded page.
+        Role and status are changed on an organisation&apos;s People tab, where the seat counts are
+        on screen.
       </Note>
     </div>
   );

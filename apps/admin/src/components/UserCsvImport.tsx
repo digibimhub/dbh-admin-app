@@ -170,7 +170,7 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
 
           <Field
             label="CSV file"
-            hint="A header row is required and must contain email. Optional columns: display_name, role, panels_override (separated by ; or |). Column order does not matter."
+            hint="Needs an email column. display_name and role are optional; order does not matter."
           >
             <input
               type="file"
@@ -196,8 +196,7 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
           </Field>
 
           <Note>
-            Nothing is written by this step. The server reads the file, compares it with the current membership and
-            hands back a plan for you to approve.
+            No member is changed by this step — the server reads the file and hands back a plan to approve.
           </Note>
 
           <div className="flex justify-end gap-2">
@@ -219,6 +218,36 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
             <Tally symbol="=" tone="neutral" n={grouped.unchanged.length} label="unchanged" />
           </div>
 
+          {/*
+            What this plan asks of the licence. Seats were checked only at
+            commit time, so a file with more people than seats looked entirely
+            fine here and quietly dropped the overflow on the next screen.
+          */}
+          {preview.seatForecast && preview.seatForecast.length > 0 && (
+            <div className="border border-rule rounded-sm p-3">
+              <p className="text-micro uppercase tracking-[0.1em] text-ink-3 mb-1.5">Seats this asks for</p>
+              <ul className="text-meta space-y-1">
+                {preview.seatForecast.map((f) => (
+                  <li key={f.roleKey} className="tabular-nums">
+                    <span className="text-ink">{f.roleName}</span>
+                    {' — '}{f.wanted} needed, {f.free} free of {f.seats}
+                    {f.shortfall > 0 && (
+                      <span className="text-warn font-medium">
+                        {' · '}{f.shortfall} will not get one
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {preview.seatForecast.some((f) => f.shortfall > 0) && (
+                <p className="text-meta text-ink-2 mt-2">
+                  Raise the count on the Licence tab first, or apply now and import the rest later —
+                  everyone who fits is still added. Counted as things stand; nothing is reserved until you apply.
+                </p>
+              )}
+            </div>
+          )}
+
           {grouped.conflict.length > 0 && (
             <div className="border border-deny/40 bg-deny-soft/50 rounded-sm p-3">
               <p className="text-micro uppercase tracking-[0.1em] text-deny mb-1">
@@ -232,8 +261,8 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
                 ))}
               </ul>
               <p className="text-meta text-ink-2 mt-2">
-                One person belongs to exactly one organisation. Moving somebody is an explicit transfer, never a side
-                effect of an import — these rows are left alone whatever you do next.
+                One person belongs to exactly one organisation, and an import never moves anybody between
+                them. These rows are left alone whatever you do next.
               </p>
             </div>
           )}
@@ -348,7 +377,32 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
           <p className="text-body">
             <b>{result.created}</b> created · <b>{result.updated}</b> updated
             {result.disabled > 0 && <> · <b>{result.disabled}</b> disabled</>}
+            {(result.skippedNoSeat ?? 0) > 0 && (
+              <> · <b className="text-warn">{result.skippedNoSeat}</b> given no seat</>
+            )}
           </p>
+
+          {/*
+            The server has always returned `skipped`, and this panel has always
+            ignored it — so an import of 50 people into 10 free seats reported
+            "10 created" and said nothing at all about the other 40. Name them:
+            they are the whole reason the number differs from the button.
+          */}
+          {result.skipped && result.skipped.length > 0 && (
+            <div className="border border-warn/40 bg-warn-soft/50 rounded-sm p-3">
+              <p className="text-micro uppercase tracking-[0.1em] text-warn mb-1">
+                No free seat — these people were not added
+              </p>
+              <ul className="text-meta space-y-1">
+                {result.skipped.map((s) => <li key={s.email}>{s.email} — {s.reason}</li>)}
+              </ul>
+              <p className="text-meta text-ink-2 mt-2">
+                Raise the seat count on the licence, then import the same file again. Everyone already
+                added is left alone.
+              </p>
+            </div>
+          )}
+
           {result.failed.length > 0 && (
             <div>
               <p className="text-deny text-body mb-1">
@@ -360,8 +414,9 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
             </div>
           )}
           <Note>
-            The import ran as a single transaction and wrote one
-            {' '}<code className="font-mono">user.import_commit</code> audit entry naming every row it touched.
+            Written as one transaction, with a{' '}
+            <code className="font-mono">user.import_commit</code> audit entry naming everyone created,
+            updated or refused a seat.
           </Note>
           <div className="flex justify-end">
             <Button variant="primary" onClick={onClose}>Done</Button>

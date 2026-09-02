@@ -267,6 +267,13 @@ export type Dashboard = {
     expired: number;
   };
   pendingRequests: number;
+  /** Active licences inside 30 days, already ordered by end date. */
+  endingSoon: {
+    orgId: string;
+    orgName: string;
+    mode: LicenseMode;
+    endDate: string;
+  }[];
   overCap: { id: string; name: string; role_name: string; seats: number; used: number }[];
 };
 
@@ -285,12 +292,24 @@ export type ImportPlanRow = {
   message?: string;
 };
 
+/** What a plan will ask of the licence, per role. Advisory — nothing is reserved. */
+export type SeatForecast = {
+  roleKey: string;
+  roleName: string;
+  seats: number;
+  used: number;
+  free: number;
+  wanted: number;
+  shortfall: number;
+};
+
 export type ImportPreview = {
   orgId: string;
   /** Integrity token — commit only applies a plan that matches its preview. */
   token: string;
   summary: Partial<Record<ImportAction, number>>;
   rows: ImportPlanRow[];
+  seatForecast?: SeatForecast[];
 };
 
 export type ImportResult = {

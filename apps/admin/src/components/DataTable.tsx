@@ -104,8 +104,8 @@ export function DataTable<T>({
   return (
     <div className="border border-rule rounded-md bg-card shadow-card">
       {hasHeader && (
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-rule">
-          {filters && <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">{filters}</div>}
+        <div className="flex flex-wrap items-end gap-2 px-4 py-3 border-b border-rule">
+          {filters && <div className="flex flex-wrap items-end gap-2 flex-1 min-w-0">{filters}</div>}
 
           {moreFilters && (
             <Button variant="ghost" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen}>

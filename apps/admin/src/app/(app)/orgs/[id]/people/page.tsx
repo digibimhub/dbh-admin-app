@@ -15,7 +15,7 @@ import {
 } from '@/lib/types';
 import { DataTable, PAGE_SIZE, Pagination, type Column } from '@/components/DataTable';
 import {
-  Button, ErrorNote, Pill, Select, StatusPill, TextInput, TimeAgo,
+  Button, ErrorNote, Pill, SEARCH_FIELD, Select, StatusPill, TextInput, TimeAgo,
 } from '@/components/ui';
 
 const FILTER_DEFAULTS = { q: '', role: '', status: '' };
@@ -191,7 +191,7 @@ export default function OrgPeoplePage() {
               placeholder="Search name or email"
               defaultValue={values.q}
               onKeyDown={(e) => { if (e.key === 'Enter') set({ q: (e.target as HTMLInputElement).value }); }}
-              className="!w-auto flex-1 min-w-[200px]"
+              className={SEARCH_FIELD}
               aria-label="Search people"
             />
             <Select value={values.role} onChange={(e) => set({ role: e.target.value })} className="!w-auto" aria-label="Filter by role">

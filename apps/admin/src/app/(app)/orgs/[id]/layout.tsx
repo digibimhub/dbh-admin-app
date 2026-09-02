@@ -85,7 +85,19 @@ export default function OrgLayout({ children }: { children: ReactNode }) {
             <h2 className="font-semibold text-page leading-tight tracking-tight flex items-center gap-2.5 flex-wrap">
               {org.name}
               <StatusPill status={org.status} />
-              {license && <StatusPill status={license.status} />}
+              {/*
+                The licence pill only when the licence needs attention. Two bare
+                pills both reading "active" said "Acme Engineering ACTIVE ACTIVE"
+                with nothing to tell them apart, and the stat strip right below
+                already carries the mode and the expiry. A second pill here now
+                always means look at this.
+              */}
+              {license && license.status !== 'active' && (
+                <span className="inline-flex items-center gap-1.5 text-micro uppercase tracking-[0.08em] text-ink-3">
+                  Licence
+                  <StatusPill status={license.status} />
+                </span>
+              )}
             </h2>
             <p className="font-mono text-meta text-ink-3 mt-1">{org.slug}</p>
           </div>

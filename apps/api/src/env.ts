@@ -39,6 +39,8 @@ export const env = {
   staleDeviceDays: Number(process.env.STALE_DEVICE_DAYS ?? 45),
   /** usage_daily rows older than this are rolled up and pruned. */
   usageRetentionDays: Number(process.env.USAGE_RETENTION_DAYS ?? 90),
+  /** Slack or Teams incoming webhook for operator digests. Empty = disabled, log instead. */
+  notifyWebhookUrl: process.env.NOTIFY_WEBHOOK_URL ?? '',
 };
 
 function envDevSecret(): string | undefined {

@@ -1,4 +1,28 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, type PlaywrightTestConfig } from '@playwright/test';
+
+type Project = NonNullable<PlaywrightTestConfig['projects']>[number];
+
+/**
+ * The recorded walkthrough, and the only thing in the repo that records.
+ *
+ * `video: 'on'` rather than `retain-on-failure`, because the file IS the
+ * deliverable here — a demo that failed halfway is still the run somebody
+ * wanted to look at. The size is pinned to the viewport: left alone, Playwright
+ * scales a recording down to fit 800x800, and a 1440px-wide admin table comes
+ * out of that unreadable.
+ *
+ * Its own `outputDir`, so the video is somewhere that can be named out loud and
+ * deleted on its own, without taking the traces of a real failure with it.
+ */
+const demo: Project = {
+  name: 'demo',
+  testMatch: /product-demo\.spec\.ts/,
+  outputDir: 'test-results/demo',
+  use: {
+    viewport: { width: 1440, height: 900 },
+    video: { mode: 'on', size: { width: 1440, height: 900 } },
+  },
+};
 
 /**
  * The suite drives a RUNNING stack — `pnpm dev` in another terminal — plus the
@@ -33,6 +57,34 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
+  /**
+   * Two projects, so exactly one file is recorded and nothing else is.
+   *
+   * `product-demo.spec.ts` is a narrated walkthrough meant to be watched, not
+   * another regression: it re-proves what `orgs-journey` and `addin-journey`
+   * already prove, it takes minutes, and it puts rows on the cross-organisation
+   * screens that the counting specs assert against the seed. So the ordinary
+   * project ignores the file outright — `pnpm test:e2e` runs exactly what it
+   * ran before, at the same speed, and writes no video — and the demo gets a
+   * project of its own that turns recording on and gives the browser a window
+   * worth filming.
+   *
+   * That project is only DECLARED when `E2E_DEMO=1`. A `--project` filter would
+   * not have been enough: `playwright test` with no filter runs every declared
+   * project, so a demo project that always existed would attach itself to every
+   * plain run. The switch is an env var rather than a flag for the same reason
+   * `scripts/e2e-demo.mjs` exists at all — `E2E_DEMO=1 playwright test` is not
+   * a command cmd.exe or PowerShell understands — so the runner sets it, and
+   * `pnpm test:e2e:demo` is the supported way in. Asking for `--project=demo`
+   * without it fails loudly with "project not found", which is the right kind
+   * of wrong.
+   *
+   * `workers: 1` and `fullyParallel: false` stay above, where they govern both.
+   */
+  projects: [
+    { name: 'e2e', testIgnore: /product-demo\.spec\.ts/ },
+    ...(process.env.E2E_DEMO === '1' ? [demo] : []),
+  ],
   /**
    * The mock issuer, and an API instance pointed at it.
    *

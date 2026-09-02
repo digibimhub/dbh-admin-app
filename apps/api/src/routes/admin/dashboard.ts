@@ -42,6 +42,28 @@ dashboard.get('/', async (c) => {
   const [pendingRequests] = await db.select({ n: count() }).from(s.accessRequests)
     .where(eq(s.accessRequests.status, 'pending'));
 
+  /*
+    The licences behind `expiringSoon`, not just the count.
+
+    The dashboard used to fetch /admin/licenses?status=active — every active
+    licence in the estate — and filter four of them in the browser, which is
+    the same population this already counts in SQL. Returning the rows kills
+    the second request and the two can no longer disagree.
+  */
+  const endingSoon = await db.select({
+    orgId: s.licenses.orgId,
+    orgName: s.organizations.name,
+    mode: s.licenses.mode,
+    endDate: s.licenses.endDate,
+  }).from(s.licenses)
+    .innerJoin(s.organizations, eq(s.organizations.id, s.licenses.orgId))
+    .where(and(
+      eq(s.licenses.status, 'active'),
+      sql`${s.licenses.endDate} <= CURRENT_DATE + 30`,
+    ))
+    .orderBy(s.licenses.endDate)
+    .limit(12);
+
   // Organisations where a role is over its seat count. This is the roll-up of
   // the seat rules, and the one dashboard row an operator can act on.
   const overCap = await db.execute(sql`
@@ -75,6 +97,7 @@ dashboard.get('/', async (c) => {
       expired: expired?.n ?? 0,
     },
     pendingRequests: pendingRequests?.n ?? 0,
+    endingSoon,
     overCap: overCap.rows,
   });
 });

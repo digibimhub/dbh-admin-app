@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
-import { useSession } from '@/lib/session';
+import { useCan, useSession } from '@/lib/session';
 import { ROLE_LABEL } from '@/lib/permissions';
 
 /**
@@ -36,6 +36,30 @@ function initials(email: string, name?: string | null): string {
 }
 
 /**
+ * How many people are waiting on somebody's decision.
+ *
+ * `Tabs` has always taken a `badge` and nothing ever passed one, so the queue
+ * was invisible unless you went looking. Counted once per mount and left alone:
+ * a poll would spend the /admin rate-limit budget on every open tab to move a
+ * number nobody is watching in real time.
+ */
+function usePendingRequests(): number {
+  const canReview = useCan('request.review');
+  const [n, setN] = useState(0);
+
+  useEffect(() => {
+    if (!canReview) return;
+    let live = true;
+    api<{ total: number }>('/admin/access-requests?status=pending&pageSize=1')
+      .then((d) => { if (live) setN(d.total ?? 0); })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [canReview]);
+
+  return n;
+}
+
+/**
  * Two bands, not three.
  *
  * The rail cost 200px of every screen and still sat above a page header and a
@@ -46,6 +70,7 @@ function initials(email: string, name?: string | null): string {
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const { user } = useSession();
+  const pendingRequests = usePendingRequests();
 
   async function logout() {
     await api('/admin/auth/logout', { method: 'POST' }).catch(() => undefined);
@@ -84,7 +109,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <Tabs items={NAV} ariaLabel="Primary" flush />
+        <Tabs
+          items={NAV.map((item) => (item.href === '/requests' && pendingRequests > 0
+            ? { ...item, badge: pendingRequests }
+            : item))}
+          ariaLabel="Primary"
+          flush
+        />
       </header>
 
       <main className="flex-1 px-5 py-6 pb-20">{children}</main>
@@ -104,14 +135,26 @@ export function Tabs({ items, ariaLabel = 'Section', flush = false }: {
   flush?: boolean;
 }) {
   const path = usePathname();
-  return (
+  const strip = (
     <nav
       aria-label={ariaLabel}
-      className={`flex gap-0.5 overflow-x-auto px-3 ${flush ? '' : 'border-b border-rule mb-5'}`}
+      // The link's own px-3 is the offset to cancel. `flush` sits outside any
+      // gutter and needs px-2 (8 + 12 = 20, the shell's px-5); the section
+      // strip sits inside that gutter already and needs -mx-3 to pull its
+      // first label back onto it.
+      className={`flex gap-0.5 overflow-x-auto ${flush ? 'px-2' : '-mx-3'}`}
     >
       {items.map((item) => {
-        const on = item.href === '/'
-          ? path === '/'
+        /*
+          A tab whose href is a prefix of a sibling's must match exactly.
+          The org strip is `/orgs/:id` plus `/orgs/:id/{domains,license,people}`,
+          so prefix matching lit Overview on every one of them — two tabs
+          underlined at once. The primary nav has no such pair, and still wants
+          the prefix rule so Organisations stays lit on an org's detail page.
+        */
+        const exact = items.some((o) => o.href !== item.href && o.href.startsWith(`${item.href}/`));
+        const on = item.href === '/' || exact
+          ? path === item.href
           : path === item.href || path.startsWith(`${item.href}/`);
         return (
           <Link
@@ -133,6 +176,10 @@ export function Tabs({ items, ariaLabel = 'Section', flush = false }: {
       })}
     </nav>
   );
+  // The rule and the margin go on a wrapper, so they keep the content width
+  // while the scroller overhangs it.
+  if (flush) return strip;
+  return <div className="border-b border-rule mb-5">{strip}</div>;
 }
 
 /** Kept as an alias so existing sections keep working while they migrate. */

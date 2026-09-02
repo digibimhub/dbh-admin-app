@@ -30,7 +30,11 @@ export const SERIES = ['#4F46E5', '#0891B2', '#166534', '#A16207', '#DB2777', '#
 export const SERIES_MAX = SERIES.length;
 
 const INK = '#0F172A';
-const INK_3 = '#64748B';
+// Kept in step with --ink-3 in globals.css by hand, because an SVG presentation
+// attribute cannot resolve var(). It was left on the prototype's #64748B when
+// that token was darkened for AA contrast, so every axis label here was the
+// failing value.
+const INK_3 = '#5F6E85';
 const RULE = '#E3E8EF';
 /** The card surface. Segment/band strokes paint this so adjacent shapes separate. */
 const SURFACE = '#FFFFFF';

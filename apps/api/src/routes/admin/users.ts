@@ -16,7 +16,7 @@ import { audit } from '../../middleware/audit';
 import { env } from '../../env';
 import { requireCapability } from '../../middleware/auth';
 import {
-  assertRoleAssignable, assertSeatAvailable, defaultRoleKey,
+  assertRoleAssignable, assertSeatAvailable, defaultRoleKey, seatUsage,
 } from '../../lib/seats';
 
 export const users = new Hono();
@@ -79,7 +79,7 @@ users.post('/', requireCapability('user.manage'), async (c) => {
   if (clash) {
     throw conflict(clash.orgId === body.orgId
       ? 'This person is already a member of that organisation'
-      : 'This person already belongs to another organisation. Use a transfer instead.');
+      : 'This person already belongs to another organisation.');
   }
 
   await assertRoleAssignable(db, roleKey);
@@ -112,6 +112,8 @@ const IMPORT_HELP = 'Expected a header row with at least: email. Optional: displ
 interface PlannedImport {
   rows: ImportPlanRow[];
   summary: Record<string, number>;
+  /** Rows that will ask for a seat when committed, by role key. */
+  demand: Record<string, number>;
 }
 
 /**
@@ -152,6 +154,10 @@ async function planImport(orgId: string, csv: string): Promise<PlannedImport> {
 
   const seen = new Set<string>();
   const rows: ImportPlanRow[] = [];
+  // Counted with the same rule the commit applies, so this forecast and the
+  // gate that runs later cannot disagree about who needs a seat.
+  const demand = new Map<string, number>();
+  const want = (key: string) => demand.set(key, (demand.get(key) ?? 0) + 1);
 
   for (const { line, obj } of parsed) {
     const email = (obj.email ?? '').toLowerCase();
@@ -181,6 +187,7 @@ async function planImport(orgId: string, csv: string): Promise<PlannedImport> {
 
     const current = byEmail.get(email);
     if (!current) {
+      want(role.key);
       rows.push({ line, action: 'create', email, displayName: displayName ?? null, roleKey: role.key });
       continue;
     }
@@ -190,12 +197,15 @@ async function planImport(orgId: string, csv: string): Promise<PlannedImport> {
       // customers; that has to be an explicit transfer.
       rows.push({
         line, action: 'conflict', email, existingUserId: current.id,
-        message: 'Already a member of another organisation — needs an explicit transfer',
+        message: 'Already a member of another organisation',
       });
       continue;
     }
 
-    const changes = current.roleKey !== role.key
+    const changingRole = current.roleKey !== role.key;
+    if (changingRole && current.status === 'active') want(role.key);
+
+    const changes = changingRole
       || (displayName !== undefined && current.displayName !== displayName);
     rows.push({
       line,
@@ -209,7 +219,7 @@ async function planImport(orgId: string, csv: string): Promise<PlannedImport> {
 
   const summary: Record<string, number> = { create: 0, update: 0, unchanged: 0, conflict: 0, invalid: 0 };
   for (const r of rows) summary[r.action] = (summary[r.action] ?? 0) + 1;
-  return { rows, summary };
+  return { rows, summary, demand: Object.fromEntries(demand) };
 }
 
 /** POST /admin/users/import/preview — CSV to diff. Writes nothing. */
@@ -228,11 +238,35 @@ users.post('/import/preview', requireCapability('user.import'), async (c) => {
     after: plan.summary,
   });
 
+  /*
+    What the plan will ask of the licence, per role.
+
+    The preview used to say nothing about seats, so an operator could approve
+    50 rows into 10 free seats and only learn about it from a "10 created"
+    afterwards. It stays a forecast: nothing is reserved between here and the
+    commit, so a race can still move the numbers.
+  */
+  const usage = await seatUsage(db, body.orgId);
+  const seatForecast = Object.entries(plan.demand).map(([key, wanted]) => {
+    const u = usage.get(key) ?? { roleName: key, seats: 0, used: 0 };
+    const free = Math.max(0, u.seats - u.used);
+    return {
+      roleKey: key,
+      roleName: u.roleName,
+      seats: u.seats,
+      used: u.used,
+      free,
+      wanted,
+      shortfall: Math.max(0, wanted - free),
+    };
+  });
+
   return c.json({
     orgId: body.orgId,
     token: planToken(body.orgId, plan.rows),
     summary: plan.summary,
     rows: plan.rows,
+    seatForecast,
   });
 });
 
@@ -255,17 +289,35 @@ users.post('/import/commit', requireCapability('user.import'), async (c) => {
     const updated: string[] = [];
     const skipped: { email: string; reason: string }[] = [];
 
+    // Current role and status of every member the plan means to update, so the
+    // seat rule below can match the one `PATCH /:id` follows.
+    const ids = applied.map((r) => r.existingUserId).filter((v): v is string => Boolean(v));
+    const currentById = new Map(
+      (ids.length
+        ? await tx.select({ id: s.orgUsers.id, roleKey: s.orgUsers.roleKey, status: s.orgUsers.status })
+          .from(s.orgUsers).where(inArray(s.orgUsers.id, ids))
+        : []
+      ).map((u) => [u.id, u]),
+    );
+
     for (const row of applied) {
       const roleKey = row.roleKey ?? fallbackRole;
+      const current = row.existingUserId ? currentById.get(row.existingUserId) : undefined;
+      const changingRole = current !== undefined && current.roleKey !== roleKey;
 
-      // A seat check per row, inside the transaction, so an import that runs
-      // past the seat count fills what it can and reports the rest rather than
+      // A create always takes a seat. An update takes one only when it moves an
+      // ACTIVE member into a different role — correcting a spelling on somebody
+      // already in a full role consumes nothing and must not be refused. The
+      // check stays inside the transaction, so each row counts the rows before
+      // it and an import past the seat count fills what it can rather than
       // failing whole or silently over-filling.
-      try {
-        await assertSeatAvailable(tx, body.orgId, roleKey, row.existingUserId ?? undefined);
-      } catch (e: unknown) {
-        skipped.push({ email: row.email, reason: e instanceof Error ? e.message : 'no free seat' });
-        continue;
+      if (row.action === 'create' || (changingRole && current!.status === 'active')) {
+        try {
+          await assertSeatAvailable(tx, body.orgId, roleKey, row.existingUserId ?? undefined);
+        } catch (e: unknown) {
+          skipped.push({ email: row.email, reason: e instanceof Error ? e.message : 'no free seat' });
+          continue;
+        }
       }
 
       if (row.action === 'create') {
@@ -307,6 +359,9 @@ users.post('/import/commit', requireCapability('user.import'), async (c) => {
       created: result.created.length,
       updated: result.updated.length,
       skippedNoSeat: result.skipped.length,
+      // The emails too, not just a count: a person the import refused a seat
+      // is otherwise recorded nowhere durable.
+      skippedEmails: result.skipped.map((r) => r.email),
       createdIds: result.created,
       updatedIds: result.updated,
     },

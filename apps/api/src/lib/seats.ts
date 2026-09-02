@@ -77,3 +77,42 @@ export async function assertSeatAvailable(
     );
   }
 }
+
+/**
+ * Seats and occupancy for every role on an organisation's licence.
+ *
+ * `assertSeatAvailable` answers "may this one person in?" and throws. The
+ * import preview needs the same numbers for every role at once and must not
+ * throw: it is a forecast shown before anything is written, not a gate.
+ *
+ * No licence, or no `license_roles` row for a role, means zero seats — the
+ * same reading the gate takes, so the two never disagree.
+ */
+export async function seatUsage(
+  conn: DbConn,
+  orgId: string,
+): Promise<Map<string, { roleName: string; seats: number; used: number }>> {
+  const [license] = await conn.select({ id: s.licenses.id }).from(s.licenses)
+    .where(and(eq(s.licenses.orgId, orgId), eq(s.licenses.status, 'active'))).limit(1);
+
+  const roles = await conn.select({ key: s.roles.key, name: s.roles.name }).from(s.roles);
+
+  const seats = license
+    ? await conn.select({ roleKey: s.licenseRoles.roleKey, seats: s.licenseRoles.seats })
+      .from(s.licenseRoles).where(eq(s.licenseRoles.licenseId, license.id))
+    : [];
+
+  const used = await conn.select({ roleKey: s.orgUsers.roleKey, n: count() })
+    .from(s.orgUsers)
+    .where(and(eq(s.orgUsers.orgId, orgId), eq(s.orgUsers.status, 'active')))
+    .groupBy(s.orgUsers.roleKey);
+
+  const seatBy = new Map(seats.map((r) => [r.roleKey, r.seats]));
+  const usedBy = new Map(used.map((r) => [r.roleKey, Number(r.n)]));
+
+  return new Map(roles.map((r) => [r.key, {
+    roleName: r.name,
+    seats: seatBy.get(r.key) ?? 0,
+    used: usedBy.get(r.key) ?? 0,
+  }]));
+}

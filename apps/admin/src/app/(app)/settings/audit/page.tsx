@@ -7,7 +7,7 @@ export default function AuditPage() {
   return (
     <Section
       title="Audit log"
-      note="Every mutation through the API writes an entry here with its before and after state, via middleware — there is no path that changes data without one."
+      note="Every change made through the API, with its before and after state."
     >
       <AuditTable />
     </Section>

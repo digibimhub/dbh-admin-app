@@ -428,7 +428,7 @@ export const deviceQuerySchema = paginationSchema.extend({
   revit: z.string().max(24).optional(),
 });
 
-export const requestQuerySchema = z.object({
+export const requestQuerySchema = paginationSchema.extend({
   status: requestStatus.default('pending'),
 });
 

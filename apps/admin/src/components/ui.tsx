@@ -88,6 +88,37 @@ export function Field({ label, hint, children, className = '' }: {
   );
 }
 
+const FIELD_ROW_COLS = { 2: 'sm:grid-cols-2', 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4' } as const;
+
+/**
+ * `Field`s side by side.
+ *
+ * The panels form aligned its row with `items-end`, so the hint under Slug
+ * pushed Label and Description down by the height of a hint that was not
+ * theirs. Fields flow from the top here: the labels line up, the controls line
+ * up, and a hint hangs below its own field without moving anything.
+ */
+export function FieldRow({ cols = 2, className = '', children }: {
+  cols?: keyof typeof FIELD_ROW_COLS;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`grid grid-cols-1 ${FIELD_ROW_COLS[cols]} gap-3 items-start ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The search box in a table's filter band.
+ *
+ * It was `flex-1` with no ceiling, so on a narrow window it took the whole
+ * first line and pushed every select onto its own row. Capped, it shares the
+ * line and the spare width collects before the ⋯ menu.
+ */
+export const SEARCH_FIELD = '!w-auto flex-1 min-w-[200px] max-w-[320px]';
+
 export function TextInput({ className = '', ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...rest} className={`${FIELD} ${className}`} />;
 }

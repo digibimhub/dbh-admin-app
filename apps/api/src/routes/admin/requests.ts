@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { desc, eq, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
 import { approveRequestSchema, rejectRequestSchema, requestQuerySchema } from '@app/shared';
 import { notFound, badRequest, conflict } from '../../lib/errors';
@@ -14,12 +14,33 @@ import { audit } from '../../middleware/audit';
 export const requests = new Hono();
 
 requests.get('/', async (c) => {
-  const { status } = requestQuerySchema.parse({ status: c.req.query('status') || undefined });
+  const q = requestQuerySchema.parse({
+    page: c.req.query('page'),
+    pageSize: c.req.query('pageSize'),
+    q: c.req.query('q'),
+    status: c.req.query('status') || undefined,
+  });
+
+  const filters = [eq(s.accessRequests.status, q.status)];
+  if (q.q) {
+    filters.push(or(
+      ilike(s.accessRequests.email, `%${q.q}%`),
+      ilike(s.accessRequests.emailDomain, `%${q.q}%`),
+    )!);
+  }
+  const where = and(...filters);
+
   const rows = await db.select().from(s.accessRequests)
-    .where(eq(s.accessRequests.status, status))
-    .orderBy(desc(s.accessRequests.lastAttemptAt))
-    .limit(200);
-  return c.json({ rows });
+    .where(where)
+    // Most attempts first: somebody blocked on their fortieth try is the row
+    // worth opening, and ordering purely by recency buried them under a
+    // first-timer who signed in a minute ago.
+    .orderBy(desc(s.accessRequests.attemptCount), desc(s.accessRequests.lastAttemptAt))
+    .limit(q.pageSize)
+    .offset((q.page - 1) * q.pageSize);
+
+  const [total] = await db.select({ n: count() }).from(s.accessRequests).where(where);
+  return c.json({ rows, total: total?.n ?? 0, page: q.page, pageSize: q.pageSize });
 });
 
 requests.post('/:id/approve', requireCapability('request.review'), async (c) => {
@@ -43,7 +64,7 @@ requests.post('/:id/approve', requireCapability('request.review'), async (c) => 
     ))
     .limit(1);
   if (clash) {
-    throw conflict('This person already has a membership. Move them with a transfer, then approve.');
+    throw conflict('This person is already a member of an organisation, so they cannot be approved into another one.');
   }
 
   // Approving consumes a seat like any other assignment, so it can fail when

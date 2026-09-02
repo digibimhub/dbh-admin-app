@@ -92,7 +92,7 @@ export function AddUserDialog({ open, orgId, roles, onClose, onAdded }: {
           </Field>
         )}
 
-        <Field label="Email" hint="Must match the address on their Autodesk account — that is what the OAuth exchange returns.">
+        <Field label="Email" hint="Must match their Autodesk account address.">
           <TextInput
             type="email"
             value={email}
@@ -120,8 +120,7 @@ export function AddUserDialog({ open, orgId, roles, onClose, onAdded }: {
         </Field>
 
         <Note>
-          Adding somebody before their first sign-in is fine: their Autodesk id is filled in when
-          they arrive, and the row is matched by email until then.
+          Adding somebody before their first sign-in is fine — they are matched by email until then.
         </Note>
 
         <div className="flex justify-end gap-2 pt-1">

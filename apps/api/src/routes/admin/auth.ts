@@ -123,10 +123,13 @@ adminAuth.post('/login', async (c) => {
       lastLoginIp: ip,
     }).where(eq(s.portalUsers.id, user.id));
   } else {
+    // Enrolment still to come, so this is NOT a login: stamping lastLoginAt
+    // here put a "last login" against somebody who has never got past the
+    // authenticator setup, which is exactly the person an operator is looking
+    // for on the Portal users screen. The IP is still worth keeping.
     await db.update(s.portalUsers).set({
       failedAttempts: 0,
       lockedUntil: null,
-      lastLoginAt: new Date(),
       lastLoginIp: ip,
     }).where(eq(s.portalUsers.id, user.id));
   }

@@ -11,7 +11,7 @@ import {
 } from '@/lib/types';
 import { DataTable, PAGE_SIZE, Pagination, type Column } from './DataTable';
 import { DangerDialog } from './DangerDialog';
-import { Button, ErrorNote, Note, Pill, Select, StatusPill, TextInput, TimeAgo } from './ui';
+import { Button, ErrorNote, Note, Pill, SEARCH_FIELD, Select, StatusPill, TextInput, TimeAgo } from './ui';
 
 const FILTER_DEFAULTS = { q: '', org: '', status: '', revit: '', stale: '' };
 
@@ -127,7 +127,7 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
               placeholder="Search machine name or hash"
               defaultValue={values.q}
               onKeyDown={(e) => { if (e.key === 'Enter') set({ q: (e.target as HTMLInputElement).value }); }}
-              className="!w-auto flex-1 min-w-[200px]"
+              className={SEARCH_FIELD}
               aria-label="Search devices"
             />
             {!orgId && (
@@ -170,11 +170,8 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
         pagination={<Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onPage={(p) => set({ page: p })} />}
       />
       <Note>
-        Devices are analytics. The one access decision they carry is
-        <code className="font-mono"> status = &apos;disabled&apos;</code>, and nothing a machine reports about
-        itself takes part in resolving who somebody is. Rows with no linked user are flagged — that is the
-        &ldquo;look at this&rdquo; signal, because a device that validated without resolving to a person is the
-        anomaly worth opening.
+        Devices are analytics; disabling one is the only access decision they carry. Rows with no
+        linked user are flagged — that is the anomaly worth opening.
       </Note>
 
       {disabling && (

@@ -9,7 +9,7 @@ import {
   LICENSE_MODES, LICENSE_STATUSES, MODE_LABEL, type License,
 } from '@/lib/types';
 import { DataTable, PAGE_SIZE, Pagination, type Column } from '@/components/DataTable';
-import { Button, ErrorNote, Note, Pill, Select, StatusPill, TextInput } from '@/components/ui';
+import { Button, ErrorNote, Note, Pill, SEARCH_FIELD, Select, StatusPill, TextInput } from '@/components/ui';
 
 type Row = { license: License; orgName: string; orgSlug: string };
 
@@ -134,7 +134,7 @@ export default function LicensesPage() {
               placeholder="Search organisation"
               defaultValue={values.q}
               onKeyDown={(e) => { if (e.key === 'Enter') set({ q: (e.target as HTMLInputElement).value }); }}
-              className="!w-auto flex-1 min-w-[200px]"
+              className={SEARCH_FIELD}
               aria-label="Search licences"
             />
             <Select value={values.status} onChange={(e) => set({ status: e.target.value })} className="!w-auto" aria-label="Filter by status">
@@ -163,10 +163,7 @@ export default function LicensesPage() {
         }}
         pagination={<Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPage={(p) => set({ page: p })} />}
       />
-      <Note>
-        {LICENSE_TZ_NOTE} This screen is the queue, not the editor — a row opens the
-        organisation&apos;s Licence tab, where the term, the mode and the seats are changed.
-      </Note>
+      <Note>{LICENSE_TZ_NOTE}</Note>
     </div>
   );
 }

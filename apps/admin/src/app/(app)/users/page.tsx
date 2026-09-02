@@ -19,7 +19,7 @@ export default function UsersPage() {
       <PageHeader
         eyebrow="People"
         title="Users"
-        lede="Everyone the platform knows about, across every organisation. Source is worth watching — when a customer disputes their user count, “312 auto-provisioned, 8 imported, 3 approved” ends the conversation."
+        lede="Everyone the platform knows about, across every organisation."
         actions={
           <>
             {canImport && <Button onClick={() => setImporting(true)}>Import CSV</Button>}
