@@ -4,10 +4,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from '@/lib/api';
 import { daysUntil, formatDateOnly, formatNumber } from '@/lib/format';
-import { MODE_LABEL, type Dashboard, type License, type LicenseMode } from '@/lib/types';
-import { ErrorNote, Loading, Note, Pill, Section } from '@/components/ui';
-
-type LicenseRow = { license: License; orgName: string; orgSlug: string };
+import { MODE_LABEL, type Dashboard, type LicenseMode } from '@/lib/types';
+import { ErrorNote, Loading, Pill, Section } from '@/components/ui';
 
 /**
  * One number, with somewhere to go when it is not zero.
@@ -24,16 +22,21 @@ function Tile({ label, value, href, tone, hint }: {
   tone?: 'warn' | 'deny';
   hint?: string;
 }) {
+  // A tile carries the tone it would have when it matters; at zero it means the
+  // opposite, so it recedes rather than shouting a coloured 0. The tone used to
+  // be made undefined at zero by every call site, which just painted it as
+  // ordinary ink and made a quiet 0 look exactly like a count worth reading.
+  const quiet = tone !== undefined && value === 0;
   const body = (
     <>
       <p className="text-micro uppercase tracking-[0.12em] text-ink-3">{label}</p>
       <p className={`text-kpi font-semibold tabular-nums mt-1 ${
-        tone === 'deny' ? 'text-deny' : tone === 'warn' ? 'text-warn' : 'text-ink'
+        quiet ? 'text-ink-3' : tone === 'deny' ? 'text-deny' : tone === 'warn' ? 'text-warn' : 'text-ink'
       }`}
       >
         {formatNumber(value)}
       </p>
-      {hint && <p className="text-meta text-ink-3 mt-0.5">{hint}</p>}
+      {hint && !quiet && <p className="text-meta text-ink-3 mt-0.5">{hint}</p>}
     </>
   );
   const cls = 'bg-card border border-rule rounded-md shadow-card px-4 py-3 block';
@@ -44,19 +47,14 @@ function Tile({ label, value, href, tone, hint }: {
 
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
-  const [expiring, setExpiring] = useState<LicenseRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // One request. The licences ending soon arrive with the counts rather than
+  // from a second call that pulled the whole estate to filter four rows.
   useEffect(() => {
     api<Dashboard>('/admin/dashboard')
       .then((d) => { setData(d); setError(null); })
       .catch((e: unknown) => setError(errorMessage(e)));
-    api<{ rows: LicenseRow[] }>('/admin/licenses?status=active')
-      .then((d) => setExpiring(d.rows.filter((r) => {
-        const left = daysUntil(r.license.endDate);
-        return left !== null && left <= 30;
-      })))
-      .catch(() => undefined);
   }, []);
 
   if (error) return <ErrorNote>{error}</ErrorNote>;
@@ -73,27 +71,27 @@ export default function DashboardPage() {
         <Tile
           label="Suspended"
           value={data.orgs.suspended}
-          tone={data.orgs.suspended > 0 ? 'deny' : undefined}
+          tone="deny"
           href="/orgs?status=suspended"
         />
         <Tile label="Active people" value={data.people.active} href="/users" />
         <Tile
           label="Awaiting a seat"
           value={data.people.pending}
-          tone={data.people.pending > 0 ? 'warn' : undefined}
+          tone="warn"
           href="/users?status=pending"
           hint="blocked right now"
         />
         <Tile
           label="Expiring in 30d"
           value={data.licenses.expiringSoon}
-          tone={data.licenses.expiringSoon > 0 ? 'warn' : undefined}
+          tone="warn"
           href="/licenses?window=30"
         />
         <Tile
           label="Access requests"
           value={data.pendingRequests}
-          tone={data.pendingRequests > 0 ? 'warn' : undefined}
+          tone="warn"
           href="/requests"
         />
       </div>
@@ -105,7 +103,7 @@ export default function DashboardPage() {
         */}
         <Section
           title="Roles over their seat count"
-          note="Lowering a count below the people in a role is allowed and evicts nobody, so these are informational — but they are also what a renewal conversation is made of."
+          note="Nobody is evicted — but this is what a renewal conversation is made of."
         >
           {data.overCap.length ? (
             <ul className="divide-y divide-rule -my-1">
@@ -127,21 +125,28 @@ export default function DashboardPage() {
         </Section>
 
         <Section title="Licences ending soon" note="Inside 30 days, active only.">
-          {expiring.length ? (
+          {data.endingSoon.length ? (
             <ul className="divide-y divide-rule -my-1">
-              {expiring.map((r) => {
-                const left = daysUntil(r.license.endDate)!;
+              {data.endingSoon.map((r) => {
+                const left = daysUntil(r.endDate) ?? 0;
                 return (
-                  <li key={r.license.id} className="py-2 flex items-baseline gap-2 flex-wrap">
-                    <Link href={`/orgs/${r.license.orgId}/license`} className="font-medium text-signal hover:underline">
+                  <li key={r.orgId} className="py-2 flex items-baseline gap-2 flex-wrap">
+                    <Link href={`/orgs/${r.orgId}/license`} className="font-medium text-signal hover:underline">
                       {r.orgName}
                     </Link>
-                    <span className="text-meta text-ink-3">{MODE_LABEL[r.license.mode]}</span>
+                    <span className="text-meta text-ink-3">{MODE_LABEL[r.mode]}</span>
                     <span className="ml-auto flex items-center gap-2">
                       <span className="tabular-nums text-meta text-ink-3">
-                        {formatDateOnly(r.license.endDate)}
+                        {formatDateOnly(r.endDate)}
                       </span>
-                      <Pill tone={left <= 7 ? 'deny' : 'warn'}>{left}d</Pill>
+                      {/*
+                        An active licence can already be past its end date — the
+                        job that expires them runs at 02:00 — and this rendered
+                        that as a negative day count.
+                      */}
+                      <Pill tone={left <= 7 ? 'deny' : 'warn'}>
+                        {left < 0 ? `${-left}d overdue` : `${left}d`}
+                      </Pill>
                     </span>
                   </li>
                 );
@@ -152,7 +157,11 @@ export default function DashboardPage() {
           )}
         </Section>
 
-        <Section title="Licences by mode">
+        {/*
+          Active-by-mode and the expired total are two different populations, and
+          they sat in one row under one heading as though they summed.
+        */}
+        <Section title="Active licences by mode">
           <div className="flex flex-wrap gap-4">
             {modes.length ? modes.map(([mode, n]) => (
               <div key={mode}>
@@ -160,11 +169,10 @@ export default function DashboardPage() {
                 <p className="text-title font-medium tabular-nums">{formatNumber(n)}</p>
               </div>
             )) : <p className="text-body text-ink-3">No active licences.</p>}
-            <div className="ml-auto">
-              <p className="text-micro uppercase tracking-[0.12em] text-ink-3">Expired</p>
-              <p className="text-title font-medium tabular-nums">{formatNumber(data.licenses.expired)}</p>
-            </div>
           </div>
+          <p className="text-meta text-ink-3 mt-3 pt-3 border-t border-rule">
+            <span className="tabular-nums">{formatNumber(data.licenses.expired)}</span> expired, not counted above.
+          </p>
         </Section>
 
         <Section title="Estate">
@@ -174,11 +182,6 @@ export default function DashboardPage() {
               <p className="text-title font-medium tabular-nums">{formatNumber(data.devices.active)}</p>
             </div>
           </div>
-          <Note>
-            Usage history — daily actives, launches, Revit version mix — returns with the Usage
-            screen. The tables that fed it were written nightly and read by nothing, so they were
-            removed rather than left filling up.
-          </Note>
         </Section>
       </div>
     </div>

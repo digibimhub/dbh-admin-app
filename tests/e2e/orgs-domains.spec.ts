@@ -62,10 +62,15 @@ test.describe('domains', () => {
     await expect(page.getByLabel('Domain')).toHaveValue('');
   });
 
-  test('the Overview tab names the domain in its how-people-get-in steps', async ({ owner: page }) => {
+  test('the Overview checklist counts the domain once it exists', async ({ owner: page }) => {
     await page.goto(`/orgs/${orgId}`);
-    await expect(page.getByText('How people get in')).toBeVisible();
-    await expect(page.getByText(`e2e-${tag}.example`)).toBeVisible();
+
+    // The Overview used to explain the model in three paragraphs; it now answers
+    // one question about the organisation in front of you, and the first of its
+    // three conditions is this tab's whole job.
+    await expect(page.getByText('Can people sign in?')).toBeVisible();
+    await expect(page.getByText('A domain is registered')).toBeVisible();
+    await expect(page.getByText('1 registered')).toBeVisible();
   });
 
   test('the add button guards the minimum length', async ({ owner: page }) => {
@@ -102,9 +107,14 @@ test.describe('domains', () => {
   });
 
   test('the same domain twice on the same organisation is refused', async ({ owner: page }) => {
+    // Registered by this test rather than inherited from an earlier one. A
+    // failure anywhere above makes Playwright replace the worker, which re-runs
+    // `beforeAll` against a brand new organisation — and a test that assumed the
+    // earlier domain still existed would then fail for a reason of its own.
+    const value = await givenADomain();
     await page.goto(`/orgs/${orgId}/domains`);
 
-    await page.getByLabel('Domain').fill(`e2e-${tag}.example`);
+    await page.getByLabel('Domain').fill(value);
     await page.getByRole('button', { name: 'Add domain' }).click();
 
     await expect(page.getByText(/already registered to this organisation/i)).toBeVisible();

@@ -5,7 +5,7 @@ import { api, errorMessage } from '@/lib/api';
 import { useCan } from '@/lib/session';
 import type { PanelDefinition } from '@/lib/types';
 import { DataTable, type Column } from '@/components/DataTable';
-import { Button, ErrorNote, Field, Note, Pill, Section, TextInput, Toggle } from '@/components/ui';
+import { Button, ErrorNote, Field, FieldRow, Note, Pill, Section, TextInput, Toggle } from '@/components/ui';
 
 export default function PanelsPage() {
   const canManage = useCan('panel.manage');
@@ -111,24 +111,24 @@ export default function PanelsPage() {
           }}
         />
         <Note>
-          Never rename a slug that has shipped — it is a compile-time constant inside installed add-ins, and renaming
-          it silently removes that panel from every workstation in the field. Turn one off instead.
+          Never rename a slug that has shipped. It is compiled into installed add-ins, so renaming it
+          removes that panel from every workstation in the field. Turn one off instead.
         </Note>
       </Section>
 
       {canManage && (
         <Section title="Add a panel">
-          <form onSubmit={create} className="grid sm:grid-cols-3 gap-3 items-end">
-            <Field label="Slug" hint="lowercase snake_case, matching the DLL constant.">
-              <TextInput value={slug} onChange={(e) => setSlug(e.target.value)} className="font-mono" placeholder="coordination" required />
-            </Field>
-            <Field label="Label"><TextInput value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Coordination" required /></Field>
-            <Field label="Description"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-            <div className="sm:col-span-3">
-              <Button variant="primary" type="submit" disabled={busy || !slug || !label}>
-                {busy ? 'Adding…' : 'Add panel'}
-              </Button>
-            </div>
+          <form onSubmit={create} className="space-y-3">
+            <FieldRow cols={3}>
+              <Field label="Slug" hint="lowercase snake_case, matching the DLL constant.">
+                <TextInput value={slug} onChange={(e) => setSlug(e.target.value)} className="font-mono" placeholder="coordination" required />
+              </Field>
+              <Field label="Label"><TextInput value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Coordination" required /></Field>
+              <Field label="Description"><TextInput value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+            </FieldRow>
+            <Button variant="primary" type="submit" disabled={busy || !slug || !label}>
+              {busy ? 'Adding…' : 'Add panel'}
+            </Button>
           </form>
         </Section>
       )}

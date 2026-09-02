@@ -100,7 +100,7 @@ export default function DeviceDetailPage() {
             <Row label="Last seen">
               <span title={formatAbsolute(d.lastSeenAt)}><TimeAgo value={d.lastSeenAt} /></span>
             </Row>
-            <Row label="Device hash" hint="Reported by the add-in and recorded for analytics. It is never trusted for an access decision — a patched DLL can send anything.">
+            <Row label="Device hash" hint="Recorded for analytics only. Never trusted for an access decision.">
               <span className="font-mono text-meta break-all">{d.deviceHash}</span>
             </Row>
           </FormGrid>
@@ -125,10 +125,6 @@ export default function DeviceDetailPage() {
               />
             </>
           )}
-          <Note>
-            Per-command counts are still accepted from the add-in but are not stored this phase —
-            the panel that read them arrives with the Usage screen.
-          </Note>
         </Section>
       </div>
 

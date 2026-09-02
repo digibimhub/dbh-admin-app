@@ -139,7 +139,7 @@ export default function PortalUsersPage() {
 
       <Section
         title="Portal users"
-        note="People who can sign into this admin panel. Everyone here holds an authenticator; there is no password-only path."
+        note="People who can sign into this panel. Everyone here needs an authenticator."
         actions={<Button variant="primary" onClick={() => setCreating(true)}>Add portal user</Button>}
       >
         <DataTable
@@ -154,9 +154,8 @@ export default function PortalUsersPage() {
           }}
         />
         <Note>
-          A reset clears the stored secret, bumps the session epoch — signing every one of their devices out immediately —
-          and forces enrolment at their next login. The command-line equivalent is{' '}
-          <code className="font-mono">pnpm admin:reset-totp &lt;email&gt;</code>.
+          A reset signs them out of every device immediately and forces enrolment at their next
+          login. Same as{' '}<code className="font-mono">pnpm admin:reset-totp &lt;email&gt;</code>.
         </Note>
       </Section>
 

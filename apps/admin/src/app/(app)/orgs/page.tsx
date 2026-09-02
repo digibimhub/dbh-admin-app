@@ -13,7 +13,7 @@ import {
 import { DataTable, PAGE_SIZE, Pagination, type Column } from '@/components/DataTable';
 import { Modal } from '@/components/Modal';
 import {
-  Button, ErrorNote, Field, Note, Pill, Select, StatusPill, TextInput,
+  Button, ErrorNote, Field, Note, Pill, SEARCH_FIELD, Select, StatusPill, TextInput,
 } from '@/components/ui';
 
 const FILTER_DEFAULTS = { q: '', status: '' };
@@ -164,7 +164,7 @@ export default function OrgsPage() {
               placeholder="Search name or slug"
               defaultValue={values.q}
               onKeyDown={(e) => { if (e.key === 'Enter') set({ q: (e.target as HTMLInputElement).value }); }}
-              className="!w-auto flex-1 min-w-[220px]"
+              className={SEARCH_FIELD}
               aria-label="Search organisations"
             />
             <Select value={values.status} onChange={(e) => set({ status: e.target.value })} className="!w-auto" aria-label="Filter by status">
@@ -277,8 +277,7 @@ function CreateOrgDialog({ open, onClose, onCreated }: {
           <TextInput type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
         </Field>
         <Note>
-          It starts with no licence, which means nobody can sign in yet — seats live on the licence.
-          You land on the new organisation, and the Licence tab is the next step.
+          It starts with no licence, so nobody can sign in yet. The Licence tab is the next step.
         </Note>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>

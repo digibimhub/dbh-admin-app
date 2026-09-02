@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, errorMessage } from '@/lib/api';
 import { useCan } from '@/lib/session';
-import type { PanelDefinition, RoleRow } from '@/lib/types';
+import type { RoleRow } from '@/lib/types';
+import { Modal } from '@/components/Modal';
+import { DataTable, type Column } from '@/components/DataTable';
 import {
-  Button, EmptyState, ErrorNote, Field, Loading, Note, Pill, Section,
+  Button, ErrorNote, Field, FieldRow, Loading, Note, Pill, Section,
   TextInput, Toggle,
 } from '@/components/ui';
 
@@ -16,27 +18,33 @@ import {
  * and never editable, `name` is editable at will. Everything else in the system
  * — member rows, seat rows, the add-in token — references the key, so renaming
  * a role rewrites exactly one column and breaks nothing.
+ *
+ * One row per role, not one card. With scopes gone a role is four facts, and a
+ * full-width `Section` each pushed the third one below the fold on a laptop.
+ *
+ * Scopes are not on this screen at all. `roles.scopes` still decides what the
+ * add-in switches on and the values already in the table are untouched, but
+ * nothing in the portal reads or writes them any more: a role created here
+ * starts with none and grants only the never-gated `general` panel until
+ * somebody sets them with a `PATCH /admin/roles/:key`.
  */
 export default function RolesPage() {
   const canManage = useCan('role.manage');
 
   const [rows, setRows] = useState<RoleRow[] | null>(null);
-  const [scopes, setScopes] = useState<PanelDefinition[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [renaming, setRenaming] = useState<RoleRow | null>(null);
 
   const load = useCallback(() => {
-    Promise.all([
-      api<{ rows: RoleRow[] }>('/admin/roles'),
-      api<{ rows: PanelDefinition[] }>('/admin/panels'),
-    ])
-      .then(([r, p]) => { setRows(r.rows); setScopes(p.rows); setError(null); })
+    api<{ rows: RoleRow[] }>('/admin/roles')
+      .then((r) => { setRows(r.rows); setError(null); })
       .catch((e: unknown) => setError(errorMessage(e)));
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  async function patch(key: string, body: Record<string, unknown>) {
+  const patch = useCallback(async (key: string, body: Record<string, unknown>) => {
     setBusy(true);
     setError(null);
     try {
@@ -49,189 +57,166 @@ export default function RolesPage() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [load]);
 
   if (!rows) return <Loading what="Loading roles" />;
+
+  const columns: Column<RoleRow>[] = [
+    {
+      key: 'name',
+      header: 'Role',
+      cell: (r) => (
+        <>
+          <p className="font-medium flex items-center gap-2">
+            {r.name}
+            {r.isDefault && (
+              <Pill tone="signal" title="New members are provisioned into this role">default</Pill>
+            )}
+          </p>
+          {r.description && <p className="text-meta text-ink-3">{r.description}</p>}
+        </>
+      ),
+      csv: (r) => r.name,
+    },
+    {
+      key: 'key',
+      header: 'Key',
+      cell: (r) => (
+        <span className="font-mono text-meta" title="Permanent — every member row and token carries it">
+          {r.key}
+        </span>
+      ),
+      csv: (r) => r.key,
+    },
+    {
+      key: 'members',
+      header: 'Active',
+      className: 'text-right',
+      headClassName: 'text-right',
+      cell: (r) => <span className="tabular-nums">{r.activeMembers}</span>,
+      csv: (r) => String(r.activeMembers),
+    },
+    {
+      key: 'assignable',
+      header: 'Assignable',
+      cell: (r) => {
+        if (!canManage) {
+          return <Pill tone={r.isActive ? 'allow' : 'neutral'}>{r.isActive ? 'yes' : 'retired'}</Pill>;
+        }
+        // The default role has no meaningful switch: the API refuses to
+        // deactivate it, and offering a control that only ever explains its own
+        // refusal is worse than not offering one.
+        return r.isDefault
+          ? <Pill tone="allow" title="The default role cannot be switched off">always on</Pill>
+          : (
+            <Toggle
+              checked={r.isActive}
+              disabled={busy}
+              label={`${r.name} assignable`}
+              onChange={(next) => patch(r.key, { isActive: next })}
+            />
+          );
+      },
+      csv: (r) => (r.isActive ? 'yes' : 'retired'),
+    },
+    ...(canManage ? [{
+      key: 'actions',
+      header: '',
+      className: 'text-right',
+      headClassName: 'text-right',
+      cell: (r: RoleRow) => (
+        <span className="inline-flex gap-2">
+          {!r.isDefault && (
+            <Button
+              disabled={busy || !r.isActive}
+              title="New members are provisioned into the default role"
+              onClick={() => patch(r.key, { isDefault: true })}
+            >
+              Make default
+            </Button>
+          )}
+          <Button variant="ghost" onClick={() => setRenaming(r)}>Rename</Button>
+        </span>
+      ),
+    }] : []),
+  ];
 
   return (
     <div className="space-y-4">
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      {rows.length === 0 && (
-        <EmptyState title="No roles">
-          Nobody can be provisioned until at least one role exists and is marked as the default.
-        </EmptyState>
-      )}
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.key}
+        csvName="roles"
+        empty={{
+          title: 'No roles',
+          body: 'Nobody can be provisioned until at least one role exists and is marked as the default.',
+        }}
+      />
 
-      {rows.map((role) => (
-        <RoleCard
-          key={role.key}
-          role={role}
-          scopes={scopes}
-          canManage={canManage}
-          busy={busy}
-          onPatch={(body) => patch(role.key, body)}
-        />
-      ))}
-
-      {canManage && <CreateRole scopes={scopes} onCreated={load} />}
+      {canManage && <CreateRole onCreated={load} />}
 
       <Note>
-        A key is permanent. It is what <code className="font-mono">org_users.role_key</code>, the
-        seat rows and the add-in token all carry, so reusing one would silently attach old members
-        to a new role. Retire a role by switching it off — never by deleting it.
+        A key is permanent, and reusing one would attach old members to a new role. Retire a role by
+        switching it off — never by deleting it.
       </Note>
+
+      {renaming && (
+        <RenameRole
+          role={renaming}
+          busy={busy}
+          onClose={() => setRenaming(null)}
+          onSave={async (name) => { await patch(renaming.key, { name }); setRenaming(null); }}
+        />
+      )}
     </div>
   );
 }
 
-function RoleCard({ role, scopes, canManage, busy, onPatch }: {
+/** Renaming is the one edit a role has, so it gets a dialog rather than a row that grows. */
+function RenameRole({ role, busy, onClose, onSave }: {
   role: RoleRow;
-  scopes: PanelDefinition[];
-  canManage: boolean;
   busy: boolean;
-  onPatch: (body: Record<string, unknown>) => void;
+  onClose: () => void;
+  onSave: (name: string) => void;
 }) {
   const [name, setName] = useState(role.name);
-  const [renaming, setRenaming] = useState(false);
-
-  useEffect(() => { setName(role.name); }, [role.name]);
-
-  const granted = new Set(role.scopes);
 
   return (
-    <Section
-      title={role.name}
-      note={role.description ?? undefined}
-      actions={(
-        <div className="flex items-center gap-2">
-          {role.isDefault && (
-            <Pill tone="signal" title="New members are provisioned into this role">default</Pill>
-          )}
-          <span className="text-meta text-ink-3 tabular-nums">{role.activeMembers} active</span>
-          {canManage && (
-            role.isDefault
-              // The default role has no meaningful switch: the API refuses to
-              // deactivate it, and offering a control that only ever explains
-              // its own refusal is worse than not offering one.
-              ? <Pill tone="allow" title="The default role cannot be switched off">always on</Pill>
-              : (
-                <Toggle
-                  checked={role.isActive}
-                  disabled={busy}
-                  label={`${role.name} assignable`}
-                  onChange={(next) => onPatch({ isActive: next })}
-                />
-              )
-          )}
+    <Modal open title={`Rename ${role.name}`} onClose={onClose}>
+      <form
+        className="space-y-3"
+        onSubmit={(e: FormEvent) => { e.preventDefault(); onSave(name.trim()); }}
+      >
+        <Field label="Name" hint="What everyone sees. The key never changes.">
+          <TextInput
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label={`Name for ${role.key}`}
+            required
+            minLength={2}
+          />
+        </Field>
+        <p className="text-meta text-ink-3">
+          <span className="font-mono">{role.key}</span> stays as it is, so no workstation notices.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={busy || name.trim().length < 2}>
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
         </div>
-      )}
-    >
-      <dl className="grid sm:grid-cols-[168px_minmax(0,1fr)] gap-y-3 items-baseline">
-        <dt className="text-micro uppercase tracking-[0.1em] text-ink-3">Key</dt>
-        <dd className="font-mono text-meta">
-          {role.key}
-          <span className="ml-2 text-ink-3 font-sans">permanent</span>
-        </dd>
-
-        <dt className="text-micro uppercase tracking-[0.1em] text-ink-3">Name</dt>
-        <dd>
-          {!canManage ? role.name : renaming ? (
-            <form
-              className="flex flex-wrap gap-2 items-center"
-              onSubmit={(e: FormEvent) => {
-                e.preventDefault();
-                onPatch({ name: name.trim() });
-                setRenaming(false);
-              }}
-            >
-              <TextInput
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="!w-[220px] !py-1"
-                aria-label={`Name for ${role.key}`}
-                required
-                minLength={2}
-              />
-              <Button variant="primary" type="submit" disabled={busy}>Save</Button>
-              <Button variant="ghost" type="button" onClick={() => { setName(role.name); setRenaming(false); }}>
-                Cancel
-              </Button>
-            </form>
-          ) : (
-            <span className="flex items-center gap-3">
-              {role.name}
-              <Button variant="ghost" onClick={() => setRenaming(true)}>Rename</Button>
-            </span>
-          )}
-        </dd>
-
-        <dt className="text-micro uppercase tracking-[0.1em] text-ink-3">Scopes</dt>
-        <dd>
-          <div className="flex flex-wrap gap-1.5">
-            {scopes.map((s) => {
-              if (s.neverGated) {
-                return (
-                  <span
-                    key={s.slug}
-                    title="Carries About, Updates and Sign in — granted to everybody whatever their role"
-                    className="font-mono text-meta px-2 py-1 rounded-sm border bg-allow-soft border-allow text-allow"
-                  >
-                    {s.slug} ●
-                  </span>
-                );
-              }
-              const on = granted.has(s.slug);
-              return (
-                <button
-                  key={s.slug}
-                  type="button"
-                  disabled={!canManage || busy}
-                  title={s.description ?? s.label}
-                  onClick={() => {
-                    const next = new Set(role.scopes);
-                    if (next.has(s.slug)) next.delete(s.slug); else next.add(s.slug);
-                    onPatch({ scopes: [...next] });
-                  }}
-                  className={`font-mono text-meta px-2 py-1 rounded-sm border disabled:cursor-default ${
-                    on ? 'bg-signal-soft border-signal text-signal' : 'border-rule text-ink-3 hover:border-ink-3'
-                  }`}
-                >
-                  {s.slug}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-meta text-ink-3 mt-2 max-w-[70ch]">
-            ● is never gated: it carries About, Updates and Sign in, so it is added to every grant
-            whatever this role says. A licence that could hide it would also remove the means of
-            fixing the licence.
-          </p>
-        </dd>
-
-        {!role.isDefault && canManage && (
-          <>
-            <dt className="text-micro uppercase tracking-[0.1em] text-ink-3">Default</dt>
-            <dd>
-              <Button disabled={busy || !role.isActive} onClick={() => onPatch({ isDefault: true })}>
-                Make this the default
-              </Button>
-              <span className="text-meta text-ink-3 ml-2">
-                New members are provisioned into the default role.
-              </span>
-            </dd>
-          </>
-        )}
-      </dl>
-    </Section>
+      </form>
+    </Modal>
   );
 }
 
-function CreateRole({ scopes, onCreated }: { scopes: PanelDefinition[]; onCreated: () => void }) {
+function CreateRole({ onCreated }: { onCreated: () => void }) {
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -244,16 +229,18 @@ function CreateRole({ scopes, onCreated }: { scopes: PanelDefinition[]; onCreate
     setBusy(true);
     setError(null);
     try {
+      // `scopes` is omitted rather than sent empty: `createRoleSchema` defaults
+      // it to [] and `assertScopes` short-circuits on empty, so the role is
+      // created with no grant and there is nothing to validate.
       await api('/admin/roles', {
         method: 'POST',
         body: JSON.stringify({
           key: key.trim(),
           name: name.trim(),
           description: description.trim() || undefined,
-          scopes: [...picked],
         }),
       });
-      setKey(''); setName(''); setDescription(''); setPicked(new Set());
+      setKey(''); setName(''); setDescription('');
       onCreated();
     } catch (err: unknown) {
       setError(errorMessage(err));
@@ -265,63 +252,40 @@ function CreateRole({ scopes, onCreated }: { scopes: PanelDefinition[]; onCreate
   return (
     <Section title="Add a role">
       {error && <ErrorNote>{error}</ErrorNote>}
-      <form onSubmit={submit} className="grid sm:grid-cols-2 gap-3">
-        <Field label="Name" hint="What everyone sees. Editable later.">
-          <TextInput
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setKey(suggestKey(e.target.value));
-            }}
-            required
-            minLength={2}
-          />
-        </Field>
-        <Field label="Key" hint="Lowercase snake_case. Permanent — it cannot be changed or reused.">
-          <TextInput
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            className="font-mono"
-            pattern="[a-z][a-z0-9_]*"
-            required
-          />
-        </Field>
-        <Field label="Description" className="sm:col-span-2">
-          <TextInput value={description} onChange={(e) => setDescription(e.target.value)} />
-        </Field>
-        <div className="sm:col-span-2">
-          <span className="block text-micro uppercase tracking-[0.1em] text-ink-3 mb-1.5">Scopes</span>
-          <div className="flex flex-wrap gap-1.5">
-            {scopes.filter((s) => !s.neverGated).map((s) => {
-              const on = picked.has(s.slug);
-              return (
-                <button
-                  key={s.slug}
-                  type="button"
-                  onClick={() => {
-                    const next = new Set(picked);
-                    if (next.has(s.slug)) next.delete(s.slug); else next.add(s.slug);
-                    setPicked(next);
-                  }}
-                  className={`font-mono text-meta px-2 py-1 rounded-sm border ${
-                    on ? 'bg-signal-soft border-signal text-signal' : 'border-rule text-ink-3 hover:border-ink-3'
-                  }`}
-                >
-                  {s.slug}
-                </button>
-              );
-            })}
+      <form onSubmit={submit}>
+        <FieldRow cols={2}>
+          <Field label="Name" hint="What everyone sees. Editable later.">
+            <TextInput
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setKey(suggestKey(e.target.value));
+              }}
+              required
+              minLength={2}
+            />
+          </Field>
+          <Field label="Key" hint="Lowercase snake_case. Permanent — it cannot be changed or reused.">
+            <TextInput
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              className="font-mono"
+              pattern="[a-z][a-z0-9_]*"
+              required
+            />
+          </Field>
+          <Field label="Description" className="sm:col-span-2">
+            <TextInput value={description} onChange={(e) => setDescription(e.target.value)} />
+          </Field>
+          <div className="sm:col-span-2 flex justify-end">
+            <Button variant="primary" type="submit" disabled={busy || !key || name.trim().length < 2}>
+              {busy ? 'Creating…' : 'Create role'}
+            </Button>
           </div>
-        </div>
-        <div className="sm:col-span-2 flex justify-end">
-          <Button variant="primary" type="submit" disabled={busy || !key || name.trim().length < 2}>
-            {busy ? 'Creating…' : 'Create role'}
-          </Button>
-        </div>
+        </FieldRow>
       </form>
       <Note>
-        A new role has no seats on any licence until somebody gives it some, so creating one grants
-        nothing by itself.
+        A new role has no seats on any licence, so creating one grants nothing by itself.
       </Note>
     </Section>
   );

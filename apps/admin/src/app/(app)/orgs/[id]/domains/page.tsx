@@ -46,7 +46,7 @@ export default function OrgDomainsPage() {
 
       <Section
         title="Registered domains"
-        note="A verified Autodesk email on one of these resolves to this organisation. A domain belongs to exactly one organisation, so there is never a tie to break."
+        note="A verified Autodesk email on one of these resolves here. Each domain belongs to one organisation."
       >
         {detail.domains.length ? (
           <div className="overflow-x-auto -mx-4 sm:-mx-6">
@@ -82,8 +82,7 @@ export default function OrgDomainsPage() {
         )}
 
         <Note>
-          Public mailbox domains (gmail.com and friends) are refused: anyone can hold an address on
-          one, so the first person to sign in would auto-provision every other person who has one.
+          Public mailbox domains (gmail.com and the like) are refused — anyone can hold an address on one.
         </Note>
       </Section>
 

@@ -23,7 +23,14 @@ in the add-in's `RibbonBuilder.cs`:
 | `troubleshoot` | Diagnose Duplicates |
 | `general` | About, Updates, **Sign in** |
 
-Edit it in **Settings → Scopes**.
+The catalog screen is at `/settings/panels`. It is no longer linked from the
+settings tabs — the portal does not surface scopes any more — but the URL still
+resolves, and it is where a new slug is added.
+
+**A role's grant is not editable from the portal either.** `roles.scopes` is set
+with `PATCH /admin/roles/:key`, and a role created in Settings → Roles starts
+with none — so it grants only the never-gated `general` panel until somebody
+sets them.
 
 **Slugs are append-only.** They are compiled into shipped DLLs, so renaming one
 fails nowhere and silently removes a panel from every workstation in the field.

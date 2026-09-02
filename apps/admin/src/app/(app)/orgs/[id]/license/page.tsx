@@ -72,7 +72,7 @@ function Seats({ seats, roles, canManage, onSave, busy }: {
   return (
     <Section
       title="Seats"
-      note="How many people may hold each role. Auto-provisioning fills up to the count, then the next person waits."
+      note="How many people may hold each role. Past the count, the next person waits."
       actions={canManage && !editing
         ? <Button onClick={start}>Edit seats</Button>
         : undefined}
@@ -140,9 +140,8 @@ function Seats({ seats, roles, canManage, onSave, busy }: {
       )}
 
       <Note>
-        Lowering a count below the people already in a role is allowed and evicts nobody — it shows
-        as over-cap until somebody leaves. Seats gate becoming active in a role; they never revisit
-        access already granted.
+        Lowering a count below the people already in a role evicts nobody — it shows as over-cap
+        until somebody leaves.
       </Note>
     </Section>
   );
@@ -254,7 +253,7 @@ export default function OrgLicensePage() {
               </span>
             )}
           </Row>
-          <Row label="Grace days" hint="Days a workstation may keep working offline, measured from its last successful check — not from token expiry.">
+          <Row label="Grace days" hint="Days offline still allowed, counted from the last successful check.">
             <span className="tabular-nums">{license.graceDays}</span>
           </Row>
         </FormGrid>
@@ -411,8 +410,7 @@ function IssueLicence({ orgId, roles, onDone }: {
         </FormBar>
       </FormGrid>
       <Note>
-        A role with no seats cannot be held by anybody. Leave one at 0 deliberately — that is how an
-        organisation is told &ldquo;you do not get Admins on this plan&rdquo;.
+        A role with no seats cannot be held by anybody. Leaving one at 0 is how a plan excludes it.
       </Note>
     </Section>
   );

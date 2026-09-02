@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'next/navigation';
 import { api, errorMessage } from '@/lib/api';
 import { formatAbsolute, formatDateOnly, shortHash } from '@/lib/format';
@@ -11,8 +11,8 @@ import {
 } from '@/lib/types';
 import { DangerDialog } from '@/components/DangerDialog';
 import {
-  Button, ErrorNote, FormGrid, Loading, Note, Pill, Row, Section, Select,
-  StatusPill, TimeAgo,
+  Button, ErrorNote, FormBar, FormGrid, Loading, Note, Pill, Row, Section, Select,
+  StatusPill, TextInput, TimeAgo,
 } from '@/components/ui';
 
 type Detail = { user: OrgUser; orgName: string; roleName: string; devices: Device[] };
@@ -27,6 +27,8 @@ export default function UserDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [disabling, setDisabling] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState('');
 
   const load = useCallback(() => {
     Promise.all([
@@ -67,6 +69,33 @@ export default function UserDetailPage() {
   if (!data) return <Loading what="Loading person" />;
 
   const u = data.user;
+
+  /**
+   * The one editable field on this card.
+   *
+   * `PATCH /admin/users/:id` has existed since the route file was written and
+   * nothing ever called it, so a name typed wrong in the Add person dialog or
+   * imported from a bad CSV could not be corrected anywhere in the portal.
+   * Email is deliberately not editable: it is the global unique that ties a
+   * person to one organisation.
+   */
+  async function saveName(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/admin/users/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ displayName: draftName.trim() }),
+      });
+      setEditing(false);
+      load();
+    } catch (err: unknown) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div>
@@ -117,14 +146,37 @@ export default function UserDetailPage() {
       )}
 
       <div className="space-y-4">
-        <Section title="Profile">
-          <FormGrid>
+        <Section
+          title="Profile"
+          actions={canManage && !editing ? (
+            <Button onClick={() => { setDraftName(u.displayName ?? ''); setEditing(true); }}>Edit</Button>
+          ) : undefined}
+        >
+          <FormGrid onSubmit={editing ? saveName : undefined}>
+            <Row label="Display name" htmlFor={editing ? 'user-name' : undefined} width="name">
+              {editing ? (
+                <TextInput
+                  id="user-name"
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  maxLength={120}
+                  placeholder="Not set"
+                />
+              ) : (
+                u.displayName ?? <span className="text-ink-3">not set</span>
+              )}
+            </Row>
+            <Row label="Email">
+              {u.email
+                ? <span className="break-all">{u.email}</span>
+                : <span className="text-ink-3">—</span>}
+            </Row>
             <Row label="Organisation">
               <Link href={`/orgs/${u.orgId}`} className="text-signal hover:underline">{data.orgName}</Link>
             </Row>
             <Row
               label="Role"
-              hint="Changing it frees a seat in the old role and takes one in the new. The new scopes reach their workstation at the next check, without a sign-in."
+              hint="Frees a seat in the old role and takes one in the new. Applies at their next check."
             >
               {canManage ? (
                 <Select
@@ -153,12 +205,18 @@ export default function UserDetailPage() {
               <span title={formatAbsolute(u.firstSeenAt)}><TimeAgo value={u.firstSeenAt} /></span>
             </Row>
             <Row label="Last activity"><TimeAgo value={u.lastActivityAt} /></Row>
+            {editing && (
+              <FormBar>
+                <Button variant="ghost" type="button" onClick={() => setEditing(false)}>Cancel</Button>
+                <Button variant="primary" type="submit" disabled={busy}>
+                  {busy ? 'Saving…' : 'Save changes'}
+                </Button>
+              </FormBar>
+            )}
           </FormGrid>
           <Note>
-            <code className="font-mono">autodesk_id</code> is globally unique: one person, one
-            organisation. Moving somebody between organisations is an explicit transfer, not an edit
-            here. Everything on this card comes from the Autodesk profile — there is no Revit
-            account, and Revit versions belong to the machines below.
+            Email and Autodesk ID come from Autodesk and cannot be edited — they are what tie this
+            person to one organisation. Nobody is ever deleted; disable them instead.
           </Note>
         </Section>
 

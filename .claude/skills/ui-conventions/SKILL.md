@@ -19,6 +19,7 @@ that adjusts layout.
 | `Section({ title, note, actions })` | A card-ish grouping inside a screen |
 | `Button({ variant })` | `primary` \| `secondary` (default) \| `ghost` |
 | `Field({ label, hint })` | Label + control in a dialog |
+| `FieldRow({ cols })` | Two to four `Field`s side by side |
 | `Row({ label, hint, htmlFor, width })` | Label + control inside `FormGrid` |
 | `FormGrid` / `FormBar` | Settings-style forms and their action bar |
 | `TextInput` / `TextArea` / `Select` / `Toggle` | Controls |
@@ -26,6 +27,14 @@ that adjusts layout.
 | `TimeAgo({ value })` | Any timestamp — relative, absolute on hover |
 | `EmptyState` / `Loading` / `ErrorNote` / `Note` | The four states |
 | `DefList({ items })` | Label/value pairs |
+
+### Never align a row of fields with `items-end`
+
+A `Field` with a `hint` is taller than one without, so `items-end` (or
+`items-center`) on the row pushes every other input down by the height of a hint
+that is not theirs. That was live on the panels form for months. Use `FieldRow`,
+which flows its fields from the top; put the submit button after it, not in it.
+Filter bands built from bare controls are the exception and stay `items-end`.
 
 ### Pill tones carry meaning
 

@@ -3,6 +3,7 @@ import { env } from '../env';
 import { runJob, type JobResult } from './lock';
 import { expireLicenses, expiryAlerts, markStaleDevices } from './licenses';
 import { cleanup } from './usage';
+import { pendingRequestsDigest } from './requests';
 import type { DbConn } from '../lib/db';
 
 export interface JobDefinition {
@@ -13,7 +14,7 @@ export interface JobDefinition {
 }
 
 /**
- * Four scheduled jobs, down from seven.
+ * Five scheduled jobs, after three of the original seven were removed.
  *
  * `compute-metrics` and `rollup-usage` wrote to tables nothing read, and
  * `sync-acc` wrote to two whose only consumer called an endpoint that did not
@@ -26,10 +27,11 @@ export interface JobDefinition {
  * what moves to pg-boss.
  */
 export const JOBS: JobDefinition[] = [
-  { name: 'expire-licenses',    schedule: '0 2 * * *',  run: expireLicenses },
-  { name: 'mark-stale-devices', schedule: '0 3 * * *',  run: markStaleDevices },
-  { name: 'expiry-alerts',      schedule: '0 8 * * *',  run: expiryAlerts },
-  { name: 'cleanup',            schedule: '45 * * * *', run: cleanup },
+  { name: 'expire-licenses',         schedule: '0 2 * * *',  run: expireLicenses },
+  { name: 'mark-stale-devices',      schedule: '0 3 * * *',  run: markStaleDevices },
+  { name: 'expiry-alerts',           schedule: '0 8 * * *',  run: expiryAlerts },
+  { name: 'pending-requests-digest', schedule: '30 8 * * *', run: pendingRequestsDigest },
+  { name: 'cleanup',                 schedule: '45 * * * *', run: cleanup },
 ];
 
 let tasks: ScheduledTask[] = [];

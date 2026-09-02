@@ -21,13 +21,17 @@
     "db:migrate": "pnpm --filter @app/db migrate",
     "db:seed": "pnpm --filter @app/db seed",
     "db:reset": "node scripts/db-reset.mjs",
+    "db:clean": "node scripts/db-clean.mjs",
     "db:rebuild": "node scripts/db-rebuild.mjs",
     "db:studio": "pnpm --filter @app/db studio",
     "totp": "node scripts/totp.mjs",
     "admin:reset-totp": "pnpm --filter @app/api reset-totp",
     "admin:create-user": "pnpm --filter @app/api create-user",
     "test:e2e": "playwright test",
-    "mock:aps": "node tests/mock-aps/server.mjs"
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:demo": "node scripts/e2e-demo.mjs",
+    "mock:aps": "node tests/mock-aps/server.mjs",
+    "mock:addin": "node tests/mock-addin/server.mjs"
   },
   "devDependencies": {
     "@app/core": "workspace:*",

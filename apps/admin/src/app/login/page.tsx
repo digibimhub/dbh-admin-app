@@ -19,8 +19,14 @@ const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
  * above means an operator who has spent their five attempts keeps typing
  * correct codes into a wall that will refuse all of them. Same for a request
  * that never reached the API at all.
+ *
+ * A LOCKED account is not called out either, and must not be: the API answers it
+ * with the same status, the same body and deliberately the same timing as a
+ * wrong password, so naming it here would turn ten failed guesses into a test
+ * for whether an address has an account. The policy goes in the generic message
+ * instead — true of every account, evidence about none.
  */
-const GENERIC_ERROR = 'That did not work. Check your email, password and current authenticator code, then try again.';
+const GENERIC_ERROR = 'That did not work. Check your email, password and current authenticator code. Repeated failures lock an account for 15 minutes.';
 const RATE_LIMITED = 'Too many sign-in attempts. Wait 15 minutes before trying again.';
 const UNREACHABLE = 'Could not reach the server. Check that the API is running, then try again.';
 
@@ -165,6 +171,10 @@ export default function LoginPage() {
         <div className="mb-4">
           <p className="text-micro uppercase tracking-[0.1em] text-ink-3 mb-1">Authenticator code</p>
           <TotpInput value={totp} onChange={onTotpChange} disabled={busy} />
+          <p className="text-meta text-ink-3 mt-1.5">
+            Signing in for the first time? Leave this empty — you will be asked to set up your
+            authenticator.
+          </p>
           {hint && (
             <p className="font-mono text-meta text-ink-3 mt-1.5">Local dev hint — current code: {hint}</p>
           )}

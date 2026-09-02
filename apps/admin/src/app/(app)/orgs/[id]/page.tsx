@@ -7,13 +7,31 @@ import { formatAbsolute } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { useOrg } from '@/components/OrgContext';
 import {
-  Button, ErrorNote, FormBar, FormGrid, Note, Row, Section, TextInput, TimeAgo,
+  Button, ErrorNote, FormBar, FormGrid, Pill, Row, Section, TextInput, TimeAgo,
 } from '@/components/ui';
+
+/** One line of the sign-in checklist: a state, what it means, and where to fix it. */
+function Check({ ok, label, detail, href }: {
+  ok: boolean; label: string; detail: string; href: string;
+}) {
+  return (
+    <li className="flex items-baseline gap-2.5">
+      <Pill tone={ok ? 'allow' : 'warn'}>{ok ? 'yes' : 'no'}</Pill>
+      <span className="min-w-0">
+        <Link href={href} className="text-ink hover:underline">{label}</Link>
+        <span className="text-ink-3"> — {detail}</span>
+      </span>
+    </li>
+  );
+}
 
 export default function OrgOverviewPage() {
   const { detail, reload } = useOrg();
   const org = detail.org;
   const canEdit = useCan('org.edit');
+
+  const totalSeats = detail.seats.reduce((n, s) => n + s.seats, 0);
+  const freeSeats = detail.seats.reduce((n, s) => n + Math.max(0, s.seats - s.used), 0);
 
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +68,7 @@ export default function OrgOverviewPage() {
 
       <Section
         title="Details"
-        note="An organisation is a name, a slug and somebody to contact. Everything else about it — who is in it, what they may do, how long for — belongs to its domains, its roles and its licence."
+        note="Name, slug and who to contact. Everything else lives on the other tabs."
         actions={canEdit && !editing ? <Button onClick={() => setEditing(true)}>Edit</Button> : undefined}
       >
         {/*
@@ -110,35 +128,40 @@ export default function OrgOverviewPage() {
         )}
       </Section>
 
-      <Section title="How people get in">
-        <ol className="text-body text-ink-2 space-y-2.5 max-w-[74ch] list-none counter-reset">
-          <li>
-            <b className="text-ink">1. Their email domain must be registered here.</b>{' '}
-            A domain belongs to exactly one organisation, so a verified Autodesk address on{' '}
-            {detail.domains[0]
-              ? <span className="font-mono text-meta">{detail.domains[0].value}</span>
-              : 'one of them'}{' '}
-            resolves to this one and no other.{' '}
-            <Link href={`/orgs/${org.id}/domains`} className="text-signal hover:underline">Domains →</Link>
-          </li>
-          <li>
-            <b className="text-ink">2. The licence must have a free seat for their role.</b>{' '}
-            New people get the default role. If its seats are full they still become a member — of
-            this organisation, with that role — but they wait, and the add-in tells them why.{' '}
-            <Link href={`/orgs/${org.id}/license`} className="text-signal hover:underline">Licence →</Link>
-          </li>
-          <li>
-            <b className="text-ink">3. Their role decides what the add-in shows them.</b>{' '}
-            Roles carry scopes; the add-in switches features on scopes and never on a role name, so
-            a role can be renamed without touching a single workstation.{' '}
-            <Link href={`/orgs/${org.id}/people`} className="text-signal hover:underline">People →</Link>
-          </li>
-        </ol>
-        <Note>
-          Identity comes only from Autodesk, verified server-side during the OAuth code exchange.
-          Domains map a verified email to an organisation; they never assert who somebody is, and
-          nothing the add-in reports about a machine takes part in the decision.
-        </Note>
+      {/*
+        A checklist against THIS organisation, not an explanation of the model.
+        It used to be three paragraphs restating the README, which told a reader
+        who already knew the product nothing about why nobody could sign in.
+      */}
+      <Section title="Can people sign in?" note="The three things that have to be true, checked against this organisation.">
+        <ul className="text-body space-y-2 max-w-[74ch]">
+          <Check
+            ok={detail.domains.length > 0}
+            href={`/orgs/${org.id}/domains`}
+            label="A domain is registered"
+            detail={detail.domains.length > 0
+              ? `${detail.domains.length} registered`
+              : 'Nobody can be matched to this organisation yet'}
+          />
+          <Check
+            ok={freeSeats > 0}
+            href={`/orgs/${org.id}/license`}
+            label="A licence has a free seat"
+            detail={!detail.license
+              ? 'No licence, so there are no seats'
+              : freeSeats > 0
+                ? `${freeSeats} free of ${totalSeats}`
+                : `All ${totalSeats} seats are taken — new people wait`}
+          />
+          <Check
+            ok={detail.counts.pending === 0}
+            href={`/orgs/${org.id}/people`}
+            label="Nobody is waiting"
+            detail={detail.counts.pending === 0
+              ? 'No one is held up'
+              : `${detail.counts.pending} waiting for a seat`}
+          />
+        </ul>
       </Section>
     </div>
   );
