@@ -10,6 +10,7 @@
     "migrate": "tsx src/migrate.ts",
     "seed": "tsx src/seed/index.ts",
     "reset": "tsx src/seed/reset.ts",
+    "bootstrap": "tsx src/seed/bootstrap-catalog.ts",
     "studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit"
   },

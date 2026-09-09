@@ -26,7 +26,7 @@ APS_CALLBACK_URL=http://localhost:3001/v1/auth/callback
 APS_SCOPES=openid email user-profile:read data:read
 ```
 
-`.env` is gitignored. In production these become Fly secrets, never repo files.
+`.env` is gitignored. In production these become Render environment variables, never repo files.
 
 ## 3. APS scopes are NOT the standard OIDC scope names
 

@@ -21,6 +21,7 @@
     "db:migrate": "pnpm --filter @app/db migrate",
     "db:seed": "pnpm --filter @app/db seed",
     "db:reset": "node scripts/db-reset.mjs",
+    "db:bootstrap": "pnpm --filter @app/db bootstrap",
     "db:clean": "node scripts/db-clean.mjs",
     "db:rebuild": "node scripts/db-rebuild.mjs",
     "db:studio": "pnpm --filter @app/db studio",

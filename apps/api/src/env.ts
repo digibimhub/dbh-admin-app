@@ -18,7 +18,8 @@ export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   isDev: (process.env.NODE_ENV ?? 'development') !== 'production',
   databaseUrl: req('DATABASE_URL'),
-  apiPort: Number(process.env.API_PORT ?? 3001),
+  /** Render and similar hosts inject PORT; API_PORT is the local convention. */
+  apiPort: Number(process.env.PORT ?? process.env.API_PORT ?? 3001),
   adminUrl: process.env.ADMIN_URL ?? 'http://localhost:3000',
   apiPublicUrl: process.env.API_PUBLIC_URL ?? `http://localhost:${process.env.API_PORT ?? 3001}`,
   jwtPortalSecret: req('JWT_PORTAL_SECRET', envDevSecret()),
