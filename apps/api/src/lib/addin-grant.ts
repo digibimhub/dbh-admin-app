@@ -123,7 +123,18 @@ export interface AccessToken {
   nextCheck: string;
 }
 
-export async function signAccessToken(result: Granted, email: string): Promise<AccessToken> {
+/**
+ * @param autodeskId
+ *   The Autodesk user id from userinfo. Distinct from the token's own `sub`,
+ *   which is `org_users.id` — the add-in compares this one against Revit's
+ *   `Application.LoginUserId` to confirm the session belongs to the person
+ *   sitting at the machine.
+ */
+export async function signAccessToken(
+  result: Granted,
+  email: string,
+  autodeskId: string,
+): Promise<AccessToken> {
   const signing = await getSigningKey();
   const nextCheck = nextCheckAt();
   const accessToken = await signAddinJwt({
@@ -135,6 +146,7 @@ export async function signAccessToken(result: Granted, email: string): Promise<A
       org: result.orgId,
       org_name: result.orgName,
       email,
+      autodesk_id: autodeskId,
       role: result.roleKey,
       scopes: result.scopes,
       license_end: result.license.endDate,

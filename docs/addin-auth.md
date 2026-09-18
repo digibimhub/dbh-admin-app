@@ -52,6 +52,46 @@ add-in                    API                     Autodesk
 - `email_verified` gates the whole domain tier. An unverified address is a
   string somebody typed.
 
+## The browser and Revit must be the same person
+
+A user whose browser is signed in to one Autodesk account and whose Revit is
+signed in to another got a licence resolved against whoever the *browser* knew —
+which need not be the person at the machine. Seen in testing: Revit on
+`vijay006rv`, the browser on `info@digibimhub.com`. One licence per Autodesk
+account means nothing if those are two different people.
+
+So `/v1/auth/start` takes an optional `revitLoginUserId` — Revit's
+`Application.LoginUserId` — which rides along in the `oauth_states` payload and
+is compared at the callback against the `sub` userinfo returns. Both are
+Autodesk's own id for the account, so this is an exact comparison and not an
+inference from a naming convention.
+
+Three things about it are deliberate:
+
+- **It is checked before `resolveUser`.** That function is not a read: it
+  creates the membership that makes somebody a pending member of an
+  organisation. Resolving first would enrol the browser's account into an org it
+  never asked to join, purely because it happened to be signed in on that
+  machine. Refusing first also means a mismatch costs no seat.
+- **It is checked again at `/v1/auth/exchange`**, rather than read back from
+  `denied`. That endpoint deliberately re-resolves everything an operator could
+  have changed since the callback — and a mismatch is not one of those things,
+  because nobody can approve it away. Leaving it to the re-resolve alone would
+  let the exchange grant the session the callback had just refused.
+- **Absent means "cannot check", never "refuse".** An add-in older than the
+  field must still sign in, and Revit can legitimately be signed out — a case
+  the add-in refuses for itself, before reaching the API.
+
+The value is client-asserted and so does **not** breach the rule above. It
+cannot grant anything, widen anything or name anybody; identity still comes only
+from the code exchange. All it can do is cause a refusal, so the worst a forged
+value achieves is refusing its own sign-in.
+
+The access token carries `autodesk_id` for the same reason. It is distinct from
+the token's `sub`, which is `org_users.id` — the add-in compares `autodesk_id`
+against Revit locally for an instant answer, while the server's check above is
+the one that cannot be bypassed.
+
 ## Refresh tokens
 
 Stored only as SHA-256 hashes. Rotated on every successful validation, under a

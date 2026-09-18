@@ -23,6 +23,12 @@ export const denyCode = z.enum([
   'license_not_started',
   'offline_grace_exceeded',
   'invalid_token',
+  /**
+   * The browser signed in as a different Autodesk account to the one Revit is
+   * using. Refused at the OAuth callback, before `resolveUser` runs, so no
+   * membership is created and no seat is considered for the wrong person.
+   */
+  'revit_account_mismatch',
 ]);
 export type DenyCode = z.infer<typeof denyCode>;
 
@@ -95,6 +101,24 @@ export type DeviceInfo = z.infer<typeof deviceInfoSchema>;
 export const authStartSchema = z.object({
   device: deviceInfoSchema,
   redirectPort: z.number().int().min(1024).max(65535),
+  /**
+   * `Application.LoginUserId` — the Autodesk account Revit itself is signed in
+   * to. Held with the OAuth state and compared at the callback against the
+   * `sub` that userinfo returns, so a browser signed in as somebody else is
+   * refused before a membership exists.
+   *
+   * Optional because an add-in older than this field still has to sign in, and
+   * because Revit can legitimately be signed out. Absent means "cannot check",
+   * never "allow anyone" — the add-in refuses the signed-out case itself, and a
+   * value that arrives here is always checked.
+   *
+   * Client-asserted, and therefore NOT an access decision in the sense
+   * AGENTS.md forbids: it cannot grant anything, widen anything or identify
+   * anybody. Identity still comes only from the code exchange. All it can do is
+   * cause a refusal, so the worst a forged value achieves is refusing its own
+   * sign-in.
+   */
+  revitLoginUserId: z.string().trim().min(1).max(128).optional(),
 });
 
 export const tokenRefreshSchema = z.object({
@@ -109,6 +133,18 @@ export const addinTokenClaims = z.object({
   org: z.string(),
   org_name: z.string(),
   email: z.string(),
+  /**
+   * The Autodesk user id (OIDC `sub` from userinfo), as distinct from this
+   * token's own `sub`, which is the portal's `org_users.id`.
+   *
+   * It is here because the add-in has no other way to tell whether the session
+   * belongs to the person Revit is signed in as: Revit exposes an Autodesk id
+   * and an Autodesk handle, and until this claim existed the token carried
+   * neither, leaving the add-in to infer identity from the fact that Autodesk
+   * derives a handle from an email's local part. This makes that an exact
+   * comparison against `Application.LoginUserId`.
+   */
+  autodesk_id: z.string(),
   /**
    * The role KEY, and informational only. The add-in must never branch on it —
    * that is what `scopes` is for. Carrying it lets a support engineer read a

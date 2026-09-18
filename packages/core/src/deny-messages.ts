@@ -23,6 +23,14 @@ export const DENY_MESSAGES: Record<DenyCode, { message: string; action: string }
     message: 'Your organisation has no free seat for your role on its current licence.',
     action: 'Your BIM manager can free a seat or raise the count at the admin portal. You do not need to sign in again.',
   },
+  /**
+   * The user can fix this one entirely by themselves, so the action says how
+   * rather than pointing at an operator who has nothing to do with it.
+   */
+  revit_account_mismatch: {
+    message: 'That browser is signed in to a different Autodesk account than Revit is.',
+    action: 'Sign out at accounts.autodesk.com, then sign in again as the account shown at the top right of Revit. Nothing was changed and no seat was used.',
+  },
   user_disabled: {
     message: 'This account has been disabled.',
     action: 'Contact your BIM manager if this is unexpected.',

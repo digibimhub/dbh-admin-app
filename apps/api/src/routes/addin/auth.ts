@@ -4,8 +4,8 @@ import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
 import {
   apsConfigured, authorizeUrl, encryptAtRest, exchangeCode,
-  fetchUserInfo, getApsConfig, pkceChallenge, pkceVerifier, randomToken,
-  resolveUser, sha256Hex, type AutodeskIdentity,
+  fetchUserInfo, getApsConfig, mismatchedRevitAccount, pkceChallenge, pkceVerifier,
+  randomToken, resolveUser, sha256Hex, type AutodeskIdentity,
 } from '@app/core';
 import { authExchangeSchema, authStartSchema, deviceInfoSchema, type DeviceInfo } from '@app/shared';
 import { ensureEncryptionKey } from '../../env';
@@ -30,6 +30,12 @@ interface StatePayload {
   handoffHash?: string | null;
   identity?: AutodeskIdentity;
   denied?: string;
+  /**
+   * The Autodesk account Revit was signed in to when /start was called, carried
+   * here so the callback can compare it with the account that actually
+   * authenticated. Absent from an older add-in, or when Revit is signed out.
+   */
+  revitLoginUserId?: string | null;
   /** APS tokens, AES-GCM encrypted before they touch the row. */
   aps?: { accessTokenEnc: string; refreshTokenEnc: string | null; expiresIn: number } | null;
 }
@@ -63,7 +69,10 @@ addinAuth.post('/start', async (c) => {
   const state = randomToken(24);
   const verifier = pkceVerifier();
 
-  const payload: StatePayload = { device: body.device };
+  const payload: StatePayload = {
+    device: body.device,
+    revitLoginUserId: body.revitLoginUserId ?? null,
+  };
   await db.insert(s.oauthStates).values({
     state,
     // PKCE verifier. Held server-side so the callback can complete the
@@ -113,13 +122,25 @@ addinAuth.get('/callback', async (c) => {
     familyName: info.familyName,
   };
 
-  const result = await resolveUser(identity, device, dbResolveDeps());
+  // Whoever just authenticated, against whoever Revit is signed in as. Checked
+  // BEFORE resolveUser, which is not a read: it creates the membership that
+  // makes somebody a pending member of an organisation. Resolving first would
+  // enrol the browser's account into the org of a user who never asked for it,
+  // purely because they happened to be signed in on that machine.
+  const result = mismatchedRevitAccount(stored.revitLoginUserId, info.sub)
+    ? ({ ok: false, code: 'revit_account_mismatch' } as const)
+    : await resolveUser(identity, device, dbResolveDeps());
 
   const handoff = randomToken(24);
   const payload: StatePayload = {
     device,
     handoffHash: sha256Hex(handoff),
     identity,
+    // Carried forward deliberately. This payload is rebuilt rather than spread,
+    // so anything not named here is dropped - and dropping it would leave
+    // /exchange with nothing to compare and silently grant the session the
+    // callback just refused.
+    revitLoginUserId: stored.revitLoginUserId ?? null,
     denied: result.ok ? undefined : result.code,
     // Encrypted at rest: oauth_states is a short-lived scratch table, but an
     // APS bearer token in plaintext jsonb is a live credential in every
@@ -174,6 +195,15 @@ addinAuth.post('/exchange', async (c) => {
     const identity = payload.identity;
     if (!identity) throw new HttpError(400, 'invalid_handoff', 'Handoff is missing its identity');
 
+    // Re-checked here, not read from `payload.denied`, because this endpoint
+    // deliberately re-resolves everything an operator could have changed since
+    // the callback. A mismatch is not one of those things — nobody can approve
+    // it away — so leaving it to the re-resolve alone would let the exchange
+    // grant a session the callback had already refused.
+    if (mismatchedRevitAccount(payload.revitLoginUserId, identity.autodeskId)) {
+      return c.json(denial('revit_account_mismatch'));
+    }
+
     // Re-resolve rather than trusting the result cached at callback time: an
     // operator may have approved or disabled the account in between.
     const result = await resolveUser(identity, payload.device, dbResolveDeps(tx));
@@ -204,7 +234,7 @@ addinAuth.post('/exchange', async (c) => {
     // The email claim drives the add-in's error text. An empty one turns
     // "Jo Smith's licence ended" into an anonymous failure, which is the
     // difference between a user fixing it and a support ticket.
-    const token = await signAccessToken(result, identity.email);
+    const token = await signAccessToken(result, identity.email, identity.autodeskId);
 
     return c.json({
       status: 'ok',

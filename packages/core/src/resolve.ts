@@ -40,7 +40,14 @@ export type DenyCode =
   | 'license_expired'
   | 'license_not_started'
   | 'offline_grace_exceeded'
-  | 'invalid_token';
+  | 'invalid_token'
+  /**
+   * Raised by the OAuth callback, never by `resolveUser` — the resolver is
+   * given one identity and has nothing to compare it against. Listed here
+   * because this union and the `denyCode` enum in `@app/shared` are the one
+   * vocabulary, kept in step by `deny-messages.test.ts`.
+   */
+  | 'revit_account_mismatch';
 
 /** Verified server-side during the OAuth code exchange. */
 export interface AutodeskIdentity {
@@ -151,6 +158,36 @@ export type ResolveResult =
 
 export function emailDomain(email: string): string {
   return email.split('@')[1]?.toLowerCase() ?? '';
+}
+
+/**
+ * Whether the account that authenticated through the browser is a different
+ * Autodesk account to the one Revit is signed in as.
+ *
+ * Both sides are Autodesk's own identifier for the account — `LoginUserId` in
+ * Revit, `sub` from OIDC userinfo — so this is an exact comparison rather than
+ * an inference from a naming convention. That distinction is the whole reason
+ * the id is carried: the add-in otherwise sees only an Autodesk *handle* on one
+ * side and an email on the other, and has to guess.
+ *
+ * **Absent means "cannot check", never "refuse".** An add-in older than the
+ * `revitLoginUserId` field must still be able to sign in, and Revit can
+ * legitimately be signed out — a case the add-in refuses for itself, before
+ * ever calling the API. A value that does arrive is always compared.
+ *
+ * The value is client-asserted, and deliberately **not** an access decision in
+ * the sense the identity invariant forbids: it cannot grant anything, widen
+ * anything or name anybody, and identity still comes only from the code
+ * exchange. All it can do is cause a refusal, so the worst a forged value
+ * achieves is refusing its own sign-in.
+ */
+export function mismatchedRevitAccount(
+  revitLoginUserId: string | null | undefined,
+  autodeskId: string,
+): boolean {
+  const claimed = revitLoginUserId?.trim();
+  if (!claimed) return false;
+  return claimed.toLowerCase() !== autodeskId.trim().toLowerCase();
 }
 
 /**
