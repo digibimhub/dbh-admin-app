@@ -31,6 +31,9 @@ const CLAIMS: Omit<AddinTokenClaims, 'iss' | 'exp'> = {
   org: 'org-a',
   org_name: 'Alec Engineering',
   email: 'j.smith@alec.in',
+  // Autodesk's own id for the account, deliberately unlike `sub` above, which
+  // is the portal's org_users.id. The add-in compares this one with Revit.
+  autodesk_id: 'ABCDEF123456',
   role: 'admin',
   scopes: ['cleanup', 'parameters', 'excel', 'general'],
   license_end: '2026-12-31',

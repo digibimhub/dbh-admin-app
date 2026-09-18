@@ -172,7 +172,7 @@ addinValidate.post('/refresh', async (c) => {
     }
 
     // --- 5. sign ---------------------------------------------------------
-    const token = await signAccessToken(resolved, user.email ?? identity.email);
+    const token = await signAccessToken(resolved, user.email ?? identity.email, identity.autodeskId);
 
     return {
       status: 'ok',
