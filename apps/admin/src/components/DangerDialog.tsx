@@ -13,10 +13,13 @@ import { TotpInput } from './TotpInput';
  *   2. a mandatory reason
  *   3. step-up TOTP
  *   4. an audit entry (written by the API's audit middleware on the mutation)
+ *
+ * The confirm button is the neutral outline, not red: there is no danger
+ * variant in this design, and the reason field plus the code are the friction.
  */
 export function DangerDialog({
   open, title, target, targetKind, consequence, confirmLabel, requireStepUp = true,
-  reasonLabel = 'Reason (recorded in the audit log)', onCancel, onConfirm,
+  reasonLabel = 'Reason (recorded in the audit log)', verb = 'change', onCancel, onConfirm,
 }: {
   open: boolean;
   title: string;
@@ -27,6 +30,8 @@ export function DangerDialog({
   confirmLabel: string;
   requireStepUp?: boolean;
   reasonLabel?: string;
+  /** "You are about to {verb} this {targetKind}:" */
+  verb?: string;
   onCancel: () => void;
   onConfirm: (reason: string) => Promise<void>;
 }) {
@@ -64,12 +69,24 @@ export function DangerDialog({
   }
 
   return (
-    <Modal open={open} title={title} onClose={onCancel}>
-      <p className="text-body text-ink-2 mb-1">You are about to change this {targetKind}:</p>
-      <p className="font-mono text-body bg-paper-2 border border-rule rounded-sm px-3 py-2 mb-3 break-words">
+    <Modal
+      open={open}
+      title={title}
+      onClose={onCancel}
+      footer={(
+        <>
+          <Button onClick={onCancel} disabled={busy}>Cancel</Button>
+          <Button onClick={submit} disabled={busy || !reasonOk || !totpOk}>
+            {busy ? 'Working…' : confirmLabel}
+          </Button>
+        </>
+      )}
+    >
+      <p className="text-body mb-2">You are about to {verb} this {targetKind}:</p>
+      <p className="font-mono text-small bg-paper-2 border border-rule rounded-sm px-3 py-2.5 mb-4 break-words text-ink">
         {target}
       </p>
-      <p className="text-body text-ink-2 mb-4">{consequence}</p>
+      <p className="text-body mb-4">{consequence}</p>
 
       {error && <ErrorNote>{error}</ErrorNote>}
 
@@ -78,27 +95,20 @@ export function DangerDialog({
           rows={3}
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Why is this happening? At least 3 characters."
+          placeholder="At least three characters"
           autoFocus
         />
       </Field>
 
       {needsTotp && (
-        <div className="mb-4">
-          <p className="text-micro uppercase tracking-[0.1em] text-ink-3 mb-1">Authenticator code</p>
+        <div>
+          <p className="text-label text-ink-2 mb-1">Your authenticator code</p>
           <TotpInput value={totp} onChange={setTotp} />
           <p className="text-meta text-ink-3 mt-1">
             Step-up confirmation. Your password is not needed again.
           </p>
         </div>
       )}
-
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
-        <Button variant="danger" onClick={submit} disabled={busy || !reasonOk || !totpOk}>
-          {busy ? 'Working…' : confirmLabel}
-        </Button>
-      </div>
     </Modal>
   );
 }

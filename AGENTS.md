@@ -125,8 +125,28 @@ Roles are DATA, not an enum. See `docs/roles-and-seats.md`.
   made, so lowering a count below occupancy is allowed and evicts nobody.
 - A full role does not reject a person: they become a member of the right
   organisation with the right role and `status = 'pending'`, and validation
-  denies with `seats_exhausted`. Their session stays valid, so freeing a seat
-  releases them with no re-authentication.
+  denies with `seats_exhausted`. Under the `automatic` join policy the
+  resolver promotes them at their next sign-in once a seat exists
+  (`activateUser`, audited as `user.auto_activate`); under `approval` only an
+  admin's approve does.
+- `pending` always carries a stored `pending_reason` — `awaiting_approval`,
+  `seats_exhausted` or `no_licence` — and the CHECK constraint holds it both
+  ways. A registered domain with no licence makes a **pending member**
+  (`no_licence`), not a global access request; only "no organisation at all"
+  cases go to `access_requests`.
+- `rejected` is sticky: the row stays, the add-in hears `membership_rejected`
+  at every sign-in, and approve is the only way back. `DELETE /admin/users/:id`
+  is forget — never-active rows only, step-up, and the next sign-in starts a
+  fresh request.
+- `org_admin` is the one portal role whose READS are scoped
+  (`portal_users.org_id`). Reads go through `assertOrgAccess` (404, never
+  403), `scopedOrgFilter` and `requireGlobal()` in `middleware/auth.ts`, and
+  every `/admin/users/:id/*` handler loads its row through `loadMember`.
+  Never reintroduce an ungated read that returns another organisation's rows.
+- Every migration file runs in one transaction, so a label added to a
+  Postgres enum in a migration cannot be referenced as a value in that same
+  file. CHECK constraints compare `status::text` / `role::text` for that
+  reason; keep it that way.
 
 ## Scopes
 

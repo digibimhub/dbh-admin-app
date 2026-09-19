@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api, errorMessage, qs } from '@/lib/api';
 import { useUrlState } from '@/lib/useUrlState';
 import {
@@ -10,7 +10,7 @@ import {
 } from '@/lib/types';
 import { DataTable, PAGE_SIZE, Pagination, type Column } from './DataTable';
 import {
-  Button, ErrorNote, Note, Pill, SEARCH_FIELD, Select, StatusPill, TextInput, TimeAgo,
+  Avatar, Button, ErrorNote, Note, SearchInput, Select, StatusText, TimeAgo, memberStatusLabel,
 } from './ui';
 
 const FILTER_DEFAULTS = { q: '', org: '', role: '', status: '', source: '' };
@@ -18,10 +18,9 @@ const FILTER_DEFAULTS = { q: '', org: '', role: '', status: '', source: '' };
 /**
  * Everyone the platform knows about, across every organisation.
  *
- * A row click opens the person's page. The drawer this table used to show was
- * a summary of that page with a link to it — one click, two destinations —
- * and the controls it carried (role, enable, disable) belong on the People tab
- * of an organisation, where the seat counts they interact with are visible.
+ * A row click opens the person's page. The controls (role, enable, disable)
+ * belong on the organisation's People tab, where the seat counts they
+ * interact with are visible.
  */
 export function UsersTable({ orgId, toolbar, reloadKey }: {
   /** When set the table is locked to one organisation and the org filter is hidden. */
@@ -62,56 +61,48 @@ export function UsersTable({ orgId, toolbar, reloadKey }: {
 
   const rows = data?.rows ?? [];
 
-  const sourceCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const r of rows) counts.set(r.user.source, (counts.get(r.user.source) ?? 0) + 1);
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [rows]);
-
   const columns: Column<UserRow>[] = [
     {
-      key: 'name', header: 'Name',
-      // Bounded for the same reason as the organisation name: `truncate` only
-      // ellipsises inside a box that has a width, so an unusually long name or
-      // address would otherwise set the column width for every other row.
+      key: 'name', header: 'Person',
       cell: (r) => (
-        <div className="min-w-0 max-w-[20rem]">
-          <div className="font-medium truncate" title={r.user.displayName ?? r.user.email ?? undefined}>
-            {r.user.displayName ?? r.user.email ?? '—'}
+        <div className="flex items-center gap-3 min-w-0 max-w-[24rem]">
+          <Avatar name={r.user.displayName} email={r.user.email} />
+          <div className="min-w-0">
+            <div className="font-semibold text-ink truncate" title={r.user.displayName ?? r.user.email ?? undefined}>
+              {r.user.displayName ?? r.user.email ?? '—'}
+            </div>
+            {r.user.displayName && r.user.email && (
+              <div className="text-small text-ink-3 truncate" title={r.user.email}>{r.user.email}</div>
+            )}
           </div>
-          {r.user.displayName && r.user.email && (
-            <div className="text-micro text-ink-3 truncate" title={r.user.email}>{r.user.email}</div>
-          )}
         </div>
       ),
       csv: (r) => `${r.user.displayName ?? ''} ${r.user.email ?? ''}`.trim(),
     },
     ...(orgId ? [] : [{
       key: 'org', header: 'Organisation',
-      cell: (r: UserRow) => <span className="text-meta">{r.orgName}</span>,
+      cell: (r: UserRow) => r.orgName,
       csv: (r: UserRow) => r.orgName,
     }]),
     {
       key: 'role', header: 'Role',
-      cell: (r) => <Pill tone="neutral">{r.roleName}</Pill>,
+      cell: (r) => <span className="text-ink-3">{r.roleName}</span>,
       csv: (r) => r.roleName,
     },
     {
       key: 'status', header: 'Status',
-      cell: (r) => (r.user.status === 'pending'
-        ? <Pill tone="warn" title="A seat was not free when they signed in">awaiting a seat</Pill>
-        : <StatusPill status={r.user.status} />),
-      csv: (r) => r.user.status,
+      cell: (r) => <StatusText status={r.user.status} reason={r.user.pendingReason} />,
+      csv: (r) => memberStatusLabel(r.user.status, r.user.pendingReason),
     },
     {
       key: 'source', header: 'Source',
       optional: true,
-      cell: (r) => <span className="text-meta text-ink-2">{SOURCE_LABEL[r.user.source] ?? r.user.source}</span>,
+      cell: (r) => <span className="text-ink-3">{SOURCE_LABEL[r.user.source] ?? r.user.source}</span>,
       csv: (r) => r.user.source,
     },
     {
       key: 'activity', header: 'Last activity',
-      cell: (r) => <TimeAgo value={r.user.lastActivityAt} className="tabular-nums text-meta text-ink-2" />,
+      cell: (r) => <TimeAgo value={r.user.lastActivityAt} className="text-ink-3" />,
       csv: (r) => r.user.lastActivityAt ?? '',
     },
   ];
@@ -122,27 +113,22 @@ export function UsersTable({ orgId, toolbar, reloadKey }: {
     <div>
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      {sourceCounts.length > 1 && (
-        <p className="tabular-nums text-micro text-ink-3 mb-2">
-          This page: {sourceCounts.map(([s, n]) => `${n} ${SOURCE_LABEL[s as keyof typeof SOURCE_LABEL] ?? s}`).join(' · ')}
-        </p>
-      )}
-
       <DataTable
         columns={columns}
         rows={rows}
         rowKey={(r) => r.user.id}
         loading={loading}
         csvName="users"
+        noun="people"
+        total={data?.total}
         onRowClick={(r) => router.push(`/users/${r.user.id}`)}
-        flagRow={(r) => (r.user.status === 'pending' ? 'Waiting for a seat' : null)}
+        flagRow={(r) => (r.user.status === 'pending' ? memberStatusLabel('pending', r.user.pendingReason) : null)}
         filters={(
           <>
-            <TextInput
+            <SearchInput
               placeholder="Search name or email"
               defaultValue={values.q}
-              onKeyDown={(e) => { if (e.key === 'Enter') set({ q: (e.target as HTMLInputElement).value }); }}
-              className={SEARCH_FIELD}
+              onSearch={(q) => set({ q })}
               aria-label="Search users"
             />
             {!orgId && (
@@ -153,7 +139,7 @@ export function UsersTable({ orgId, toolbar, reloadKey }: {
             )}
             <Select value={values.status} onChange={(e) => set({ status: e.target.value })} className="!w-auto" aria-label="Filter by status">
               <option value="">Any status</option>
-              {MEMBER_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {MEMBER_STATUSES.map((s) => <option key={s} value={s}>{memberStatusLabel(s)}</option>)}
             </Select>
             {activeFilterCount > 0 && <Button variant="ghost" onClick={reset}>Clear</Button>}
           </>
@@ -182,8 +168,7 @@ export function UsersTable({ orgId, toolbar, reloadKey }: {
         pagination={<Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onPage={(p) => set({ page: p })} />}
       />
       <Note>
-        Role and status are changed on an organisation&apos;s People tab, where the seat counts are
-        on screen.
+        Role and status are changed on an organisation&apos;s People tab, where the seat counts are on screen.
       </Note>
     </div>
   );

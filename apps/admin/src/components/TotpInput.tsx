@@ -51,7 +51,7 @@ export function TotpInput({ value, onChange, disabled, autoFocus }: {
   }
 
   return (
-    <div className="flex gap-1.5" role="group" aria-label="Six digit authenticator code">
+    <div className="flex gap-2" role="group" aria-label="Six digit authenticator code">
       {digits.map((d, i) => (
         <input
           key={i}
@@ -66,7 +66,7 @@ export function TotpInput({ value, onChange, disabled, autoFocus }: {
           autoComplete={i === 0 ? 'one-time-code' : 'off'}
           aria-label={`Digit ${i + 1}`}
           maxLength={1}
-          className="w-11 h-12 text-center text-page tabular-nums border border-rule rounded-sm bg-card focus:outline-none focus:border-signal disabled:opacity-50"
+          className="w-11 h-12 text-center text-dialog font-bold tabular-nums border border-rule rounded-sm bg-card text-ink focus:outline-none focus:border-focus focus:ring-2 focus:ring-focus/20 disabled:opacity-40"
         />
       ))}
     </div>

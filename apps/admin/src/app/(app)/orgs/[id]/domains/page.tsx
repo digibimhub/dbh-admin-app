@@ -32,8 +32,7 @@ export default function OrgDomainsPage() {
       setValue('');
       reload();
     } catch (err: unknown) {
-      // The API's 409 already names the organisation that holds it, which is
-      // the only thing the operator needs in order to act.
+      // The API's 409 already names the organisation that holds it.
       setError(errorMessage(err));
     } finally {
       setBusy(false);
@@ -41,7 +40,7 @@ export default function OrgDomainsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <Section
@@ -49,24 +48,22 @@ export default function OrgDomainsPage() {
         note="A verified Autodesk email on one of these resolves here. Each domain belongs to one organisation."
       >
         {detail.domains.length ? (
-          <div className="overflow-x-auto -mx-4 sm:-mx-6">
-            <table className="w-full text-body">
+          <div className="overflow-x-auto -mx-6">
+            <table className="w-full text-control text-ink">
               <thead>
-                <tr className="text-left border-y border-rule bg-paper">
-                  <th className="text-micro font-medium uppercase tracking-[0.1em] text-ink-3 px-4 sm:px-6 py-2.5">Domain</th>
-                  <th className="text-micro font-medium uppercase tracking-[0.1em] text-ink-3 px-4 py-2.5">Added</th>
-                  <th className="px-4 sm:px-6 py-2.5" />
+                <tr className="text-left border-y border-ink/10">
+                  <th className="font-bold px-6 py-4">Domain</th>
+                  <th className="font-bold px-4 py-4">Added</th>
+                  <th className="px-6 py-4" />
                 </tr>
               </thead>
               <tbody>
                 {detail.domains.map((d) => (
                   <tr key={d.id} className="border-b border-rule last:border-0">
-                    <td className="px-4 sm:px-6 py-2.5 font-mono text-meta">{d.value}</td>
-                    <td className="px-4 py-2.5 text-meta text-ink-2"><TimeAgo value={d.createdAt} /></td>
-                    <td className="px-4 sm:px-6 py-2.5 text-right">
-                      {canManage && (
-                        <Button variant="ghost" onClick={() => setRemoving(d)}>Remove</Button>
-                      )}
+                    <td className="px-6 py-4 font-mono text-small">{d.value}</td>
+                    <td className="px-4 py-4 text-ink-3"><TimeAgo value={d.createdAt} /></td>
+                    <td className="px-6 py-4 text-right">
+                      {canManage && <Button variant="ghost" size="sm" onClick={() => setRemoving(d)}>Remove…</Button>}
                     </td>
                   </tr>
                 ))}
@@ -76,20 +73,18 @@ export default function OrgDomainsPage() {
         ) : (
           <EmptyState title="No domains registered">
             Until a domain is registered here, nobody can sign in to this organisation from the
-            add-in — every attempt lands in the access request queue as{' '}
-            <code className="font-mono text-meta">domain_not_registered</code>.
+            add-in. Every attempt lands in the access request queue as{' '}
+            <code className="font-mono text-small">domain_not_registered</code>.
           </EmptyState>
         )}
 
-        <Note>
-          Public mailbox domains (gmail.com and the like) are refused — anyone can hold an address on one.
-        </Note>
+        <Note>Public mailbox domains (gmail.com and the like) are refused. Anyone can hold an address on one.</Note>
       </Section>
 
       {canManage && (
         <Section title="Add a domain">
-          <form onSubmit={add} className="flex flex-wrap items-start gap-2">
-            <div className="flex-1 min-w-[240px] max-w-[340px]">
+          <form onSubmit={add} className="flex flex-wrap items-start gap-3">
+            <div className="flex-1 min-w-[240px] max-w-[360px]">
               <TextInput
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
@@ -112,6 +107,7 @@ export default function OrgDomainsPage() {
       <DangerDialog
         open={removing !== null}
         title="Remove domain"
+        verb="remove"
         targetKind="domain"
         target={removing?.value ?? ''}
         consequence="Nobody new can be provisioned from this domain afterwards. People who are already members keep working — removing a domain does not remove anybody."

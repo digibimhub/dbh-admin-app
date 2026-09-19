@@ -5,12 +5,13 @@ import { createDomainSchema, reasonSchema } from '@app/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import { uuidParam } from '../../lib/params';
 import { audit } from '../../middleware/audit';
-import { requireCapability } from '../../middleware/auth';
+import { assertOrgAccess, requireCapability } from '../../middleware/auth';
 
 export const domains = new Hono();
 
 domains.get('/orgs/:id/domains', async (c) => {
   const id = uuidParam(c);
+  assertOrgAccess(c, id);
   const rows = await db.select().from(s.orgDomains)
     .where(eq(s.orgDomains.orgId, id))
     .orderBy(asc(s.orgDomains.value));

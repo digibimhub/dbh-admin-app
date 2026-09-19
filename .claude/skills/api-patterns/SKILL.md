@@ -45,10 +45,44 @@ Three layers, all in `apps/api/src/middleware/auth.ts`:
 `requireRole(...roles)` still exists but prefer capabilities.
 
 The matrix lives once in `packages/shared/src/index.ts` (`CAPABILITIES`,
-`CAPABILITY_MATRIX`, `can()`) and is **mirrored** in
+`CAPABILITY_MATRIX`, `can()`, `capabilitiesFor()`) and is **mirrored** in
 `apps/admin/src/lib/permissions.ts` so the screen hides exactly what the route
-would refuse. Add a capability in both places.
+would refuse. Add a capability in both places. `/admin/auth/me` also returns
+the caller's `capabilities`, which the portal prefers over its mirror.
 `tests/e2e/orgs-rbac.spec.ts` walks every role against the real routes.
+
+### The scope layer — the organisation admin exception to "reads are open"
+
+`org_admin` is a portal role confined to one organisation
+(`portal_users.org_id`). `requireSession` loads that organisation on every
+request and sets `orgScope` / `scopedOrg` on the context (null for global
+roles). Reads are then confined with three helpers from the same file:
+
+| Helper | Use it when | Answer for a scoped caller |
+| --- | --- | --- |
+| `requireGlobal()` | a whole router is portal staff's (dashboard, licences list, access requests, panels, portal users) | 403 |
+| `assertOrgAccess(c, rowOrgId)` | a row was loaded by id | **404, never 403** — another customer's ids must not be confirmable by probing |
+| `scopedOrgFilter(c, requested?)` | a list takes `?org=` | forced to the scope; an explicit *other* org is a 403 |
+
+Writes add `assertOrgWritable(c)` (409 while the scoped organisation is
+suspended) after the capability check. Every `/admin/users/:id/*` handler gets
+its row through `loadMember(c)` in `lib/members.ts`, which is `uuidParam` →
+select → `notFound` → `assertOrgAccess` in one call, so no handler can forget
+the scope. `/admin/orgs/:id` and its sub-resources call `assertOrgAccess`
+after loading the organisation.
+
+A route that returns rows from several organisations without one of these is a
+leak. The rbac spec's scoped-reads test asserts every list row's `orgId`
+equals the scope.
+
+### First-login gate
+
+`requireSession` also refuses everything but `/admin/auth/totp/*`,
+`/admin/auth/password`, `/admin/auth/me` and `/admin/auth/logout` while
+`portal_users.must_change_password` is set (403 `password_change_required`).
+Organisation admins are created with it, so the password a portal admin chose
+never outlives the first sign-in. `POST /admin/auth/password` clears it, bumps
+`session_epoch` and re-issues the cookie so the caller stays signed in.
 
 > Hiding a button is not a permission. Before `requireCapability` existed,
 > `/admin/*` was guarded by a session check and nothing else — every
@@ -141,8 +175,12 @@ history that referenced it.
 
 ## Two role vocabularies — do not conflate them
 
-- **Portal roles** — `owner | admin | support | viewer`, a pg enum on
-  `portal_users`, defaulting to `viewer`. These drive `requireCapability`.
+- **Portal roles** — `owner | admin | support | viewer | org_admin`, a pg enum
+  on `portal_users`, defaulting to `viewer`. These drive `requireCapability`.
+  The first four are `globalPortalRole`, the only ones Portal users and the
+  CLI may assign; `org_admin` is minted solely by
+  `POST /admin/orgs/:id/portal-users`, with the role fixed and the
+  organisation taken from the path, and a PATCH can neither enter nor leave it.
 - **Org member roles** — the `roles` table, data rather than an enum so an
   operator can add one without a deploy. `key` is immutable and is what
   `org_users`, `license_roles` and the add-in token's `role` claim reference;
@@ -154,8 +192,15 @@ history that referenced it.
 
 1. `requireCapability('…')` in the route definition, capability added to both
    matrices.
-2. `schema.parse()` on the body, `uuidParam`/`requiredParam` on the segments.
-3. `requireStepUp(c)` if it is privileged.
+2. `schema.parse()` on the body, `uuidParam`/`requiredParam` on the segments —
+   or `loadMember(c)` for a member route, which does the segment, the load
+   and the scope check together.
+3. `requireStepUp(c)` if it is privileged; `assertOrgWritable(c)` if an
+   organisation admin may reach it.
 4. Throw the error helpers, never raw responses.
-5. `await audit(c, {...})` before returning.
+5. `await audit(c, {...})` before returning, with `orgId` so a scoped audit
+   read can see it.
 6. `pnpm typecheck`, then a spec in `tests/e2e/`.
+
+And for a new **read**: decide which of `requireGlobal()`, `assertOrgAccess`
+or `scopedOrgFilter` applies. One of them always does.

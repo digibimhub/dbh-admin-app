@@ -8,20 +8,26 @@
  * field below maps 1:1 onto a column in `packages/db/src/schema`.
  */
 
-export type PortalRole = 'owner' | 'admin' | 'support' | 'viewer';
+export type PortalRole = 'owner' | 'admin' | 'support' | 'viewer' | 'org_admin';
+/** The roles a portal user can be given from Portal users. `org_admin` is minted per organisation. */
+export type GlobalPortalRole = Exclude<PortalRole, 'org_admin'>;
+export type JoinPolicy = 'automatic' | 'approval';
+export type PendingReason = 'awaiting_approval' | 'seats_exhausted' | 'no_licence';
 export type OrgStatus = 'active' | 'suspended';
 export type LicenseMode = 'internal' | 'trial' | 'standard';
 export type LicenseStatus = 'active' | 'suspended' | 'expired';
-export type MemberStatus = 'active' | 'pending' | 'disabled';
+export type MemberStatus = 'active' | 'pending' | 'disabled' | 'rejected';
 export type MemberSource = 'import' | 'auto_domain' | 'manual' | 'approved_request';
 export type DeviceStatus = 'active' | 'disabled' | 'stale';
 export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 
-export const PORTAL_ROLES: PortalRole[] = ['owner', 'admin', 'support', 'viewer'];
+export const PORTAL_ROLES: PortalRole[] = ['owner', 'admin', 'support', 'viewer', 'org_admin'];
+export const GLOBAL_PORTAL_ROLES: GlobalPortalRole[] = ['owner', 'admin', 'support', 'viewer'];
+export const JOIN_POLICIES: JoinPolicy[] = ['automatic', 'approval'];
 export const ORG_STATUSES: OrgStatus[] = ['active', 'suspended'];
 export const LICENSE_MODES: LicenseMode[] = ['internal', 'trial', 'standard'];
 export const LICENSE_STATUSES: LicenseStatus[] = ['active', 'suspended', 'expired'];
-export const MEMBER_STATUSES: MemberStatus[] = ['active', 'pending', 'disabled'];
+export const MEMBER_STATUSES: MemberStatus[] = ['active', 'pending', 'disabled', 'rejected'];
 export const MEMBER_SOURCES: MemberSource[] = [
   'import', 'auto_domain', 'manual', 'approved_request',
 ];
@@ -40,6 +46,21 @@ export const MODE_LABEL: Record<LicenseMode, string> = {
   standard: 'Standard',
 };
 
+/**
+ * What `/admin/auth/me` adds beside the account row. `capabilities` is the
+ * server's own list and wins over the local matrix in `permissions.ts`;
+ * `scope` is `org` for an organisation admin, who then carries the org.
+ */
+export type SessionExtras = {
+  scope: 'global' | 'org';
+  orgId: string | null;
+  orgName: string | null;
+  orgStatus: OrgStatus | null;
+  joinPolicy: JoinPolicy | null;
+  capabilities: string[];
+  mustChangePassword: boolean;
+};
+
 export type SessionUser = {
   id: string;
   email: string;
@@ -51,7 +72,7 @@ export type SessionUser = {
   lastLoginAt: string | null;
   lastLoginIp: string | null;
   createdAt: string;
-};
+} & Partial<SessionExtras>;
 
 export type PortalUserRow = {
   id: string;
@@ -63,6 +84,9 @@ export type PortalUserRow = {
   totpResetRequired: boolean;
   lastLoginAt: string | null;
   createdAt: string;
+  /** Set on `org_admin` rows only. */
+  orgId?: string | null;
+  orgName?: string | null;
 };
 
 /* ----------------------------------------------------------------- roles */
@@ -97,6 +121,8 @@ export type Organization = {
   name: string;
   status: OrgStatus;
   primaryContactEmail: string | null;
+  /** Absent until the API carries it; the Joining control hides itself then. */
+  joinPolicy?: JoinPolicy;
   createdAt: string;
   updatedAt: string;
 };
@@ -171,6 +197,13 @@ export type OrgUser = {
   lastActivityAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Why a pending row is pending. Stored, not derived. */
+  pendingReason?: PendingReason | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
+  attemptCount?: number;
+  lastAttemptAt?: string | null;
 };
 
 export type UserRow = {
@@ -252,13 +285,49 @@ export type PanelDefinition = {
 
 export type Paged<T> = { rows: T[]; total: number; page: number; pageSize: number };
 
+/** Pending members by reason, plus the rejected count. */
+export type RequestCounts = {
+  awaitingApproval: number;
+  seatsExhausted: number;
+  noLicence: number;
+  rejected: number;
+};
+
 export type OrgDetail = {
   org: Organization;
   license: License | null;
   domains: OrgDomain[];
   seats: SeatRow[];
-  counts: { users: number; pending: number; devices: number };
+  counts: { users: number; pending: number; devices: number } & Partial<RequestCounts>;
   lastActivityAt: string | null;
+};
+
+/* ------------------------------------------------------- member requests */
+
+/** One row of `GET /admin/orgs/:id/requests`. */
+export type OrgRequestRow = {
+  user: OrgUser;
+  roleName: string;
+  reviewedByEmail: string | null;
+};
+
+/** Seat usage as the requests endpoint reports it; `SeatRow` names the role `name` instead. */
+export type SeatUsage = {
+  roleKey: string;
+  roleName?: string;
+  name?: string;
+  seats: number;
+  used: number;
+};
+
+export type OrgRequestsResponse = {
+  rows: OrgRequestRow[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  counts: RequestCounts;
+  licence: { active: boolean; endDate: string | null };
+  seats: SeatUsage[];
 };
 
 export type Dashboard = {

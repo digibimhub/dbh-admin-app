@@ -4,6 +4,7 @@ import { runJob, type JobResult } from './lock';
 import { expireLicenses, expiryAlerts, markStaleDevices } from './licenses';
 import { cleanup } from './usage';
 import { pendingRequestsDigest } from './requests';
+import { pendingMembersDigest } from './members';
 import type { DbConn } from '../lib/db';
 
 export interface JobDefinition {
@@ -14,7 +15,8 @@ export interface JobDefinition {
 }
 
 /**
- * Five scheduled jobs, after three of the original seven were removed.
+ * Six scheduled jobs, after three of the original seven were removed and the
+ * members digest was added.
  *
  * `compute-metrics` and `rollup-usage` wrote to tables nothing read, and
  * `sync-acc` wrote to two whose only consumer called an endpoint that did not
@@ -31,6 +33,7 @@ export const JOBS: JobDefinition[] = [
   { name: 'mark-stale-devices',      schedule: '0 3 * * *',  run: markStaleDevices },
   { name: 'expiry-alerts',           schedule: '0 8 * * *',  run: expiryAlerts },
   { name: 'pending-requests-digest', schedule: '30 8 * * *', run: pendingRequestsDigest },
+  { name: 'pending-members-digest',  schedule: '35 8 * * *', run: pendingMembersDigest },
   { name: 'cleanup',                 schedule: '45 * * * *', run: cleanup },
 ];
 

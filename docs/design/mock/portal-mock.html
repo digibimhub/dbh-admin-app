@@ -1,0 +1,891 @@
+<title>DIGIBIM Licensing Portal Mock</title>
+<!--
+  Clickable mock of the DIGIBIM HUB licensing portal after the Autodesk-style redesign,
+  plus the new organisation-admin persona. Everything here is static: no data fetching,
+  one page of rows per table, and every number is invented. What IS real: the shell
+  metrics (56 + 48 px black header, 1440 px column), the type ladder, the colour tokens,
+  the table metrics (69 / 81 px rows, 16 px cells), the dialog metrics (640 px, 77 px
+  header, primary on the right) and the copy — all taken from docs/design/autodesk-portal-reference.md
+  and the approved plan. The 32 px strip at the very top is mock chrome, not part of the design.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap">
+<style>
+  :root {
+    --paper: #F5F5F5; --paper-2: #F7F7F7; --card: #FFFFFF;
+    --ink: #000000; --ink-2: #212121; --ink-3: #666666; --rule: #D9D9D9;
+    --link: #006EAF; --focus: #0696D7;
+    --info: #5F60FF; --info-soft: #EFEFFF;
+    --allow: #2BC275; --deny: #DD2222; --deny-soft: #FCE9E9;
+    --nav: #000000; --nav-active: #262626; --tooltip: #535353;
+    --font: "Manrope", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: Consolas, "SFMono-Regular", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--paper); }
+  body { margin: 0; background: var(--paper); color: var(--ink-2); font: 400 16px/24px var(--font); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, p, dl, dd, dt, ul { margin: 0; }
+  ul { padding: 0; list-style: none; }
+  a { color: inherit; text-decoration: none; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  .num { font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+  /* ---- mock controls (not part of the design) ---- */
+  .mockbar { position: sticky; top: 0; z-index: 50; height: 32px; background: #FFF3C4; color: #3A2E00; border-bottom: 1px solid #E5D48A; display: flex; align-items: center; gap: 16px; padding: 0 16px; font-size: 12px; line-height: 16px; overflow-x: auto; white-space: nowrap; }
+  .mockbar strong { font-weight: 700; }
+  .mockbar .grp { display: inline-flex; gap: 4px; align-items: center; }
+  .mockbar button { height: 22px; padding: 0 8px; border: 1px solid #C9B65A; background: #FFFBEA; border-radius: 3px; font-size: 12px; cursor: pointer; }
+  .mockbar button[aria-pressed="true"] { background: #3A2E00; color: #FFF; border-color: #3A2E00; }
+  .mockbar .hint { color: #6B5A00; margin-left: auto; }
+
+  /* ---- frame + shell ---- */
+  .frame { container-type: inline-size; container-name: frame; margin: 0 auto; width: 100%; max-width: 100%; min-height: calc(100vh - 32px); display: flex; flex-direction: column; background: var(--paper); transition: max-width .2s; }
+  .frame.w1024 { max-width: 1024px; box-shadow: 0 0 0 1px var(--rule); }
+  .frame.w768 { max-width: 768px; box-shadow: 0 0 0 1px var(--rule); }
+
+  .topbar { background: var(--nav); color: #fff; height: 56px; }
+  .topbar .inner { max-width: 1600px; margin: 0 auto; height: 56px; padding: 0 24px; display: flex; align-items: center; gap: 24px; }
+  .wordmark { font-weight: 800; font-size: 16px; line-height: 20px; white-space: nowrap; color: #fff; }
+  .wordmark span { font-weight: 400; color: rgba(255,255,255,.7); margin-left: 8px; }
+  .gsearch { flex: 0 1 360px; height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--nav-active); border-radius: 4px; color: rgba(255,255,255,.7); }
+  .gsearch input { flex: 1; min-width: 0; background: none; border: 0; color: #fff; outline: none; font-size: 14px; }
+  .gsearch input::placeholder { color: rgba(255,255,255,.6); }
+  .topbar .spacer { flex: 1; }
+  .iconbtn { position: relative; width: 40px; height: 40px; border-radius: 50%; border: 0; background: transparent; color: #fff; display: inline-grid; place-items: center; cursor: pointer; }
+  .iconbtn:hover { background: var(--nav-active); }
+  .iconbtn .count { position: absolute; top: 4px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #fff; color: var(--ink); font-size: 12px; line-height: 18px; font-weight: 700; text-align: center; }
+  .avatar { display: inline-grid; place-items: center; border-radius: 50%; background: var(--paper-2); color: var(--ink); font-weight: 700; flex: none; }
+  .avatar.s24 { width: 24px; height: 24px; font-size: 10px; }
+  .avatar.s40 { width: 40px; height: 40px; font-size: 14px; }
+  .avatar.s44 { width: 44px; height: 44px; font-size: 15px; background: var(--nav-active); color: #fff; border: 0; cursor: pointer; }
+  .avatar.s48 { width: 48px; height: 48px; font-size: 17px; }
+  .navrow { background: var(--nav); height: 48px; }
+  .navrow .inner { max-width: 1600px; margin: 0 auto; height: 48px; padding: 0 24px; display: flex; align-items: stretch; overflow-x: auto; scrollbar-width: none; }
+  .navrow a { display: flex; align-items: center; padding: 0 16px; color: #fff; font-size: 14px; line-height: 20px; font-weight: 700; white-space: nowrap; }
+  .navrow a.active { background: var(--nav-active); }
+  .navrow a:hover:not(.active) { background: rgba(255,255,255,.08); }
+
+  main { flex: 1; width: 100%; max-width: 1440px; margin: 0 auto; padding: 40px 24px 80px; }
+  .footer { border-top: 1px solid var(--rule); background: var(--card); padding: 16px 24px; font-size: 12px; line-height: 16px; color: var(--ink-3); display: flex; gap: 8px; flex-wrap: wrap; }
+  .footer a { color: var(--ink-3); }
+
+  /* ---- profile flyout ---- */
+  .flyout { position: absolute; right: 24px; top: 56px; width: 288px; background: var(--card); color: var(--ink-2); border: 1px solid var(--rule); border-radius: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.2); padding: 20px; z-index: 40; }
+  .flyout .who b { display: block; font-weight: 700; color: var(--ink); }
+  .flyout .who span { display: block; font-size: 14px; line-height: 21px; color: var(--ink-3); margin-bottom: 12px; }
+  .flyout ul { margin-top: 16px; border-top: 1px solid var(--rule); padding-top: 12px; }
+  .flyout li a { display: block; padding: 6px 0; font-size: 14px; line-height: 21px; }
+  .flyout li a:hover { color: var(--link); }
+  .topbar { position: relative; }
+
+  /* ---- type ---- */
+  .h-list { font-size: 28px; line-height: 34px; font-weight: 700; color: var(--ink); text-wrap: balance; }
+  .h-record { font-size: 34px; line-height: 41px; font-weight: 800; color: var(--ink); }
+  .h-greet { font-size: 26px; line-height: 32px; font-weight: 800; color: var(--ink); }
+  .h2 { font-size: 21px; line-height: 26px; font-weight: 700; color: var(--ink); }
+  .meta { font-size: 14px; line-height: 21px; color: var(--ink-3); }
+  .lede { color: var(--ink-2); max-width: 65ch; }
+  .crumbs { font-size: 14px; line-height: 21px; color: var(--ink-3); margin-bottom: 16px; }
+  .crumbs a:hover { color: var(--link); text-decoration: underline; }
+  .crumbs span::before { content: " / "; }
+
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; flex-wrap: wrap; }
+  .page-head .who { display: flex; gap: 16px; align-items: center; }
+  .page-head .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+  /* ---- buttons ---- */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 20px; border-radius: 4px; border: 1px solid var(--ink); background: var(--card); color: var(--ink); font-size: 16px; line-height: 20px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .btn.primary { background: var(--ink); color: #fff; font-weight: 700; }
+  .btn.primary:hover { background: var(--nav-active); }
+  .btn:not(.primary):hover { background: var(--paper-2); }
+  .btn.ghost { border-color: transparent; background: transparent; padding: 0 12px; }
+  .btn.ghost:hover { background: var(--paper-2); }
+  .btn.link { border: 0; background: none; padding: 4px 0; height: auto; font-size: 14px; line-height: 20px; }
+  .btn.link:hover { color: var(--link); background: none; }
+  .btn.sm { height: 32px; padding: 0 12px; font-size: 14px; }
+  .btn.full { width: 100%; }
+  .btn[disabled], .btn.disabled { opacity: .4; pointer-events: none; }
+  .go::before { content: ""; display: inline-block; width: 16px; height: 16px; border: 1.5px solid currentColor; border-radius: 50%; background: no-repeat center/9px 9px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12h14M13 6l6 6-6 6'/></svg>"); flex: none; }
+
+  /* ---- cards, kpi, banner ---- */
+  .card { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 24px; }
+  .card + .card, .stack > * + * { margin-top: 24px; }
+  .card .h2 { margin-bottom: 4px; }
+  .card .note { margin-bottom: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+  .kpi { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--card); border: 1px solid var(--rule); border-radius: 8px; margin-bottom: 24px; }
+  .kpi > div { padding: 20px 24px; display: flex; flex-direction: column; gap: 4px; min-height: 148px; border-left: 1px solid var(--rule); }
+  .kpi > div:first-child { border-left: 0; }
+  .kpi dt { font-size: 14px; line-height: 21px; color: var(--ink-3); }
+  .kpi dd { font-size: 36px; line-height: 40px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .kpi dd.small { font-size: 16px; line-height: 24px; font-weight: 600; padding-top: 8px; }
+  .kpi dd.small b { font-weight: 700; }
+  .kpi .help { font-size: 12px; line-height: 18px; font-style: italic; color: var(--ink-3); }
+  .kpi .go { margin-top: auto; padding-top: 8px; }
+  .banner { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border: 1px solid var(--info); background: var(--info-soft); color: var(--ink-2); margin-bottom: 24px; }
+  .banner.error { border-color: var(--deny); background: var(--deny-soft); }
+  .banner .i { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid currentColor; display: grid; place-items: center; font-size: 12px; font-weight: 700; margin-top: 2px; }
+  .banner .x { margin-left: auto; border: 0; background: none; cursor: pointer; font-size: 18px; line-height: 1; }
+  .banner .btn { margin-left: auto; align-self: center; }
+
+  /* ---- tabs, segmented ---- */
+  .tabs { display: flex; border-bottom: 1px solid var(--rule); margin-bottom: 24px; overflow-x: auto; scrollbar-width: none; }
+  .tabs a, .tabs button { display: flex; align-items: center; gap: 8px; height: 48px; padding: 12px 16px; border: 0; background: none; font-size: 16px; line-height: 20px; font-weight: 600; color: var(--ink-3); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; cursor: pointer; }
+  .tabs .active { color: var(--ink); font-weight: 700; border-bottom-color: var(--ink); }
+  .pillcount { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--nav-active); color: #fff; font-size: 12px; line-height: 20px; font-weight: 700; text-align: center; }
+  .seg { display: inline-flex; height: 32px; border: 1px solid var(--ink); border-radius: 4px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; padding: 0 16px; font-size: 14px; font-weight: 600; color: var(--ink-3); cursor: pointer; }
+  .seg button[aria-checked="true"] { background: var(--ink); color: #fff; }
+
+  /* ---- definition grid ---- */
+  .defs { display: grid; grid-template-columns: 200px 1fr; }
+  .defs > div { display: contents; }
+  .defs dt, .defs dd { padding: 16px 0; border-top: 1px solid var(--rule); }
+  .defs > div:first-child dt, .defs > div:first-child dd { border-top: 0; padding-top: 0; }
+  .defs dt { font-size: 14px; line-height: 21px; font-weight: 700; color: var(--ink); padding-top: 18px; }
+  .defs dd .meta { margin-top: 6px; max-width: 60ch; }
+  .check li { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--rule); }
+  .check li:first-child { border-top: 0; padding-top: 0; }
+  .check .ok, .check .no { flex: none; width: 24px; font-weight: 700; }
+  .check .ok { color: var(--allow); }
+  .check .no { color: var(--ink-3); }
+  .attn-list li { display: flex; gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--rule); }
+  .attn-list li:first-child { border-top: 0; padding-top: 0; }
+  .attn-list li .btn { margin-left: auto; }
+  .attn-list b { font-weight: 700; color: var(--ink); }
+
+  /* ---- table card ---- */
+  .tcard { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  .toolbar { display: flex; align-items: center; gap: 12px; padding: 16px; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
+  .toolbar .right { margin-left: auto; display: flex; gap: 12px; }
+  .search { display: flex; align-items: center; gap: 8px; height: 40px; width: 360px; max-width: 100%; padding: 0 12px; border: 1px solid var(--rule); border-radius: 4px; background: var(--card); color: var(--ink-3); }
+  .search input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--ink); }
+  .strip { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--rule); font-size: 14px; line-height: 21px; color: var(--ink-3); flex-wrap: wrap; }
+  .strip .sel { color: var(--ink); font-weight: 600; }
+  .strip .bulk { display: flex; gap: 8px; margin-left: 8px; }
+  .strip .cols { margin-left: auto; }
+  .twrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 16px; line-height: 20px; font-weight: 700; color: var(--ink); padding: 24px 16px; border-bottom: 1px solid rgba(0,0,0,.1); white-space: nowrap; }
+  td { font-size: 16px; line-height: 20px; color: var(--ink); padding: 16px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: var(--paper-2); }
+  tbody tr.clickable { cursor: pointer; }
+  td.chk, th.chk { width: 48px; padding-right: 0; }
+  td.chev { width: 40px; color: var(--ink-3); font-size: 20px; text-align: right; }
+  td.r, th.r { text-align: right; }
+  .person { display: flex; align-items: center; gap: 12px; min-height: 48px; }
+  .person .n { font-weight: 600; color: var(--ink); }
+  .person .e { font-size: 14px; line-height: 20px; color: var(--ink-3); }
+  .status { color: var(--ink-3); }
+  .status.attn { color: var(--ink); font-weight: 600; }
+  .b { font-weight: 700; color: var(--ink); }
+  .rowact { display: flex; gap: 4px; justify-content: flex-end; white-space: nowrap; }
+  select.inline { height: 32px; padding: 0 28px 0 8px; border: 1px solid var(--rule); border-radius: 4px; background: var(--card) no-repeat right 8px center/12px url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>"); appearance: none; font-size: 14px; }
+  input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--ink); cursor: pointer; }
+  .pager { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--ink-3); }
+  .pager .right { margin-left: auto; display: flex; gap: 8px; }
+  .empty { padding: 36px 16px; color: var(--ink-2); max-width: 65ch; }
+
+  /* ---- forms ---- */
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label, .field .lbl { font-size: 12px; line-height: 18px; color: var(--ink-2); }
+  .field input, .field select, .field textarea { height: 40px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 4px; background: var(--card); color: var(--ink); width: 100%; }
+  .field textarea { height: auto; min-height: 72px; resize: vertical; }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--focus); outline: none; box-shadow: 0 0 0 2px rgba(6,150,215,.2); }
+  .field .hint { font-size: 14px; line-height: 21px; color: var(--ink-3); }
+  .frow { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .fstack > * + * { margin-top: 16px; }
+  .totp { display: flex; gap: 8px; }
+  .totp input { width: 44px; height: 48px; text-align: center; font-size: 20px; font-weight: 700; padding: 0; }
+  .well { border: 1px solid var(--rule); background: var(--paper-2); padding: 10px 12px; border-radius: 4px; font-family: var(--mono); font-size: 14px; }
+
+  /* ---- dialogs ---- */
+  dialog { width: 640px; max-width: calc(100% - 32px); padding: 0; border: 0; border-radius: 4px; box-shadow: 0 16px 48px rgba(0,0,0,.25); color: var(--ink-2); background: var(--card); }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  .dhead { display: flex; align-items: center; justify-content: space-between; min-height: 77px; padding: 0 24px; border-bottom: 1px solid var(--rule); }
+  .dhead h3 { font-size: 20px; line-height: 26px; font-weight: 700; color: var(--ink); }
+  .dhead button { border: 0; background: none; font-size: 22px; line-height: 1; cursor: pointer; width: 36px; height: 36px; border-radius: 4px; }
+  .dhead button:hover { background: var(--paper-2); }
+  .dbody { padding: 24px; }
+  .dbody p + p, .dbody p + .field, .dbody .field + p, .dbody .well + p, .dbody p + .well { margin-top: 16px; }
+  .dfoot { display: flex; justify-content: flex-end; gap: 12px; padding: 24px; border-top: 1px solid var(--rule); }
+
+  /* ---- login ---- */
+  .login { min-height: calc(100vh - 32px - 56px - 48px); display: grid; place-items: start center; padding-top: 48px; }
+  .login .card { width: 400px; max-width: 100%; padding: 36px; }
+  .login .card > * + * { margin-top: 20px; }
+  .login .fine { font-size: 14px; line-height: 21px; color: var(--ink-3); border-top: 1px solid var(--rule); padding-top: 16px; }
+
+  /* ---- placeholder ---- */
+  .notbuilt { max-width: 65ch; }
+  .notbuilt ul { margin-top: 12px; }
+  .notbuilt li { padding: 4px 0; }
+  .mockonly { font-size: 12px; color: #6B5A00; background: #FFF3C4; border: 1px dashed #C9B65A; padding: 4px 8px; border-radius: 3px; display: inline-block; margin-bottom: 12px; }
+
+  /* ---- responsive (container queries follow the mock width control, media queries the real viewport) ---- */
+  @container frame (max-width: 1024px) {
+    main { padding: 32px 18px 64px; }
+    .topbar .inner, .navrow .inner { padding: 0 18px; }
+    .gsearch { flex-basis: 40px; width: 40px; padding: 0; justify-content: center; }
+    .gsearch input { display: none; }
+    .kpi { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
+    .kpi > div:nth-child(3n+1) { border-left: 0; }
+    .kpi > div:nth-child(n+4) { border-top: 1px solid var(--rule); }
+  }
+  @container frame (max-width: 768px) {
+    .grid2 { grid-template-columns: 1fr; }
+    .kpi { grid-template-columns: repeat(2, 1fr); }
+    .kpi > div:nth-child(3n+1) { border-left: 1px solid var(--rule); }
+    .kpi > div:nth-child(2n+1) { border-left: 0; }
+    .kpi > div:nth-child(n+3) { border-top: 1px solid var(--rule); }
+    .defs { grid-template-columns: 1fr; }
+    .defs dt { padding-bottom: 0; }
+    .defs dd { border-top: 0; padding-top: 4px; }
+    .frow { grid-template-columns: 1fr; }
+    .search { width: 100%; }
+    .toolbar .right { margin-left: 0; width: 100%; }
+    .flyout { right: 8px; }
+  }
+  @media (max-width: 480px) {
+    main { padding: 24px 16px 48px; }
+    .topbar .inner, .navrow .inner { padding: 0 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .frame { transition: none; } }
+</style>
+
+<div class="mockbar" role="region" aria-label="Mock controls">
+  <strong>Mock controls</strong>
+  <span class="grp">Persona
+    <button type="button" data-persona="portal" aria-pressed="true">Portal admin</button>
+    <button type="button" data-persona="org" aria-pressed="false">Org admin</button>
+  </span>
+  <span class="grp">Width
+    <button type="button" data-width="1440" aria-pressed="true">1440</button>
+    <button type="button" data-width="1024" aria-pressed="false">1024</button>
+    <button type="button" data-width="768" aria-pressed="false">768</button>
+  </span>
+  <span class="grp">Screen
+    <button type="button" data-go="#/login">Sign in</button>
+  </span>
+  <span class="hint">Not part of the design. Every name and number is invented.</span>
+</div>
+
+<div class="frame w1440" id="frame">
+  <header class="topbar">
+    <div class="inner">
+      <a class="wordmark" href="#/admin/dashboard" id="brand">DIGIBIM HUB<span>Licensing</span></a>
+      <div class="gsearch chrome" role="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="gsearch" type="search" placeholder="Search organisations and people" aria-label="Search">
+      </div>
+      <div class="spacer"></div>
+      <a class="iconbtn chrome" id="bell" href="#/admin/requests" aria-label="4 pending requests">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <span class="count" id="bellcount">4</span>
+      </a>
+      <button class="avatar s44 chrome" id="avatarbtn" aria-haspopup="menu" aria-expanded="false" aria-label="Your account">AR</button>
+      <div class="flyout" id="flyout" role="menu" hidden>
+        <div class="who"><b id="fly-name">Alex Rivera</b><span id="fly-email">admin@yourco.local</span></div>
+        <button class="btn full" type="button" data-open="dlg-signout">Sign out…</button>
+        <ul>
+          <li><a href="#/profile" role="menuitem">Account</a></li>
+          <li class="portal-only"><a href="#/admin/settings" role="menuitem">Settings</a></li>
+        </ul>
+      </div>
+    </div>
+  </header>
+  <nav class="navrow chrome" aria-label="Primary"><div class="inner" id="nav"></div></nav>
+
+  <main id="main">
+
+    <!-- ===== LOGIN ===== -->
+    <section data-route="/login" hidden>
+      <div class="login">
+        <form class="card" onsubmit="event.preventDefault(); location.hash='#/admin/dashboard'">
+          <h1 class="h-list">Sign in</h1>
+          <p class="lede">Use the account a portal admin set up for you. You will be asked for a code from your authenticator.</p>
+          <div class="field"><label for="li-email">Email</label><input id="li-email" type="email" value="priya@acme-eng.com"></div>
+          <div class="field"><label for="li-pass">Password</label><input id="li-pass" type="password" value="••••••••••••••"></div>
+          <div class="field"><span class="lbl">Authenticator code</span>
+            <div class="totp" aria-label="Authenticator code"><input inputmode="numeric" maxlength="1" value="4"><input inputmode="numeric" maxlength="1" value="8"><input inputmode="numeric" maxlength="1" value="2"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"></div>
+          </div>
+          <button class="btn primary full" type="submit">Continue</button>
+          <p class="fine">Lost your authenticator? A portal admin can reset it for you. There is no self-service reset, on purpose.</p>
+        </form>
+      </div>
+    </section>
+
+    <!-- ===== DASHBOARD ===== -->
+    <section data-route="/admin/dashboard" hidden>
+      <div class="page-head">
+        <h1 class="h-greet">Good afternoon, Alex</h1>
+        <div class="actions"><a class="btn primary" href="#/admin/orgs">Add organisation…</a></div>
+      </div>
+      <dl class="kpi">
+        <div><dt>Organisations</dt><dd class="num">3</dd><a class="btn link go" href="#/admin/orgs">View organisations</a></div>
+        <div><dt>Active people</dt><dd class="num">61</dd><a class="btn link go" href="#/admin/users">View people</a></div>
+        <div><dt>Awaiting</dt><dd class="num">4</dd><span class="help">3 awaiting approval, 1 waiting on a licence</span><a class="btn link go" href="#/admin/requests">Review requests</a></div>
+        <div><dt>Licences ending in 30 days</dt><dd class="num">1</dd><span class="help">Byrne Structural, 12 days</span><a class="btn link go" href="#/admin/licenses">View licences</a></div>
+        <div><dt>Active devices</dt><dd class="num">118</dd><a class="btn link go" href="#/admin/devices">View devices</a></div>
+        <div><dt>Suspended organisations</dt><dd class="num">1</dd><a class="btn link go" href="#/admin/orgs">View</a></div>
+      </dl>
+      <p><button type="button" class="mockonly" id="freshdb">Mock: show the fresh-database state</button></p>
+      <div class="card" id="getstarted" hidden>
+        <h2 class="h2">Get started</h2>
+        <p class="meta note">Three steps before anyone can sign in from Revit.</p>
+        <ul class="check">
+          <li><span class="ok">✓</span><div>Add an organisation<div class="meta">Done, Acme Engineering.</div></div></li>
+          <li><span class="no">–</span><div>Register a domain <a class="btn link go" href="#/admin/orgs/acme">Register acme-eng.com</a><div class="meta">People sign in with their work email. The domain decides which organisation they join.</div></div></li>
+          <li><span class="no">–</span><div>Issue a licence <a class="btn link go" href="#/admin/orgs/acme">Issue a licence</a><div class="meta">Seats live on the licence, per role. Without one nobody gets a seat.</div></div></li>
+        </ul>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2 class="h2">Needs attention</h2>
+          <p class="meta note">Roles over their seat count, licences ending inside 30 days, organisations with people waiting.</p>
+          <ul class="attn-list">
+            <li><div><a class="b" href="#/admin/orgs/acme">Acme Engineering</a><div class="meta">Coordinator is full, 6 of 6. Two people are awaiting approval.</div></div><a class="btn link go" href="#/admin/orgs/acme/requests">Review</a></li>
+            <li><div><a class="b" href="#/admin/orgs/byrne">Byrne Structural</a><div class="meta">Trial licence ends 1 Oct 2026.</div></div><span class="b num">12 days</span></li>
+            <li><div><a class="b" href="#/admin/orgs/nordvest">Nordvest Rådgivning AS</a><div class="meta">No licence. One person has tried to sign in 12 times.</div></div><a class="btn link go" href="#/admin/orgs/nordvest">Issue licence</a></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h2 class="h2">Active licences by mode</h2>
+          <p class="meta note">Expired licences are not counted.</p>
+          <dl class="defs">
+            <div><dt>Standard</dt><dd class="num">1</dd></div>
+            <div><dt>Trial</dt><dd class="num">1</dd></div>
+            <div><dt>Internal</dt><dd class="num">1</dd></div>
+            <div><dt>Expired</dt><dd class="num">0</dd></div>
+          </dl>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ORGANISATIONS ===== -->
+    <section data-route="/admin/orgs" hidden>
+      <div class="page-head">
+        <h1 class="h-list">Organisations</h1>
+        <div class="actions"><button class="btn primary" type="button">Add organisation…</button></div>
+      </div>
+      <div class="tcard">
+        <div class="toolbar">
+          <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" placeholder="Search name or slug" aria-label="Search organisations"></div>
+          <button class="btn ghost" type="button">▽ Filter</button>
+        </div>
+        <div class="strip"><span>3 customers</span><button class="btn link cols" type="button">▥ Columns</button></div>
+        <div class="twrap"><table>
+          <thead><tr><th>Name</th><th>Status</th><th>Licence</th><th>Seats</th><th class="r">Awaiting</th><th>Licence ends</th><th>Contact</th><th></th></tr></thead>
+          <tbody>
+            <tr class="clickable" data-href="#/admin/orgs/acme"><td><div class="person"><span class="avatar s40">AE</span><div><div class="n">Acme Engineering</div><div class="mono">acme-engineering</div></div></div></td><td class="status">Active</td><td>Standard</td><td class="num">18 / 24</td><td class="r num b">3</td><td class="num">12 Mar 2027</td><td class="status">ops@acme-eng.com</td><td class="chev">›</td></tr>
+            <tr class="clickable" data-href="#/admin/orgs/byrne"><td><div class="person"><span class="avatar s40">BS</span><div><div class="n">Byrne Structural</div><div class="mono">byrne-structural</div></div></div></td><td class="status">Active</td><td>Trial</td><td class="num b">6 / 6</td><td class="r num status">0</td><td class="num">1 Oct 2026 <span class="b">· 12 days</span></td><td class="status">—</td><td class="chev">›</td></tr>
+            <tr class="clickable" data-href="#/admin/orgs/nordvest"><td><div class="person"><span class="avatar s40">NR</span><div><div class="n">Nordvest Rådgivning AS</div><div class="mono">nordvest</div></div></div></td><td class="status">Suspended</td><td class="b">No licence</td><td class="status">—</td><td class="r num b">1</td><td class="status">—</td><td class="status">kari@nordvest.no</td><td class="chev">›</td></tr>
+          </tbody>
+        </table></div>
+        <div class="pager"><span>1–3 of 3</span><div class="right"><button class="btn sm" type="button" disabled>Previous</button><button class="btn sm" type="button" disabled>Next</button></div></div>
+      </div>
+    </section>
+
+    <!-- ===== ORG RECORD (shared header) ===== -->
+    <section data-prefix="/admin/orgs/acme" hidden>
+      <div class="crumbs"><a href="#/admin/orgs">Organisations</a><span>Acme Engineering</span></div>
+      <div class="page-head">
+        <div class="who"><span class="avatar s48">AE</span><div><h1 class="h-record">Acme Engineering</h1><p class="meta">Standard licence · active · acme-engineering</p></div></div>
+        <div class="actions"><button class="btn" type="button">Suspend…</button></div>
+      </div>
+      <dl class="kpi">
+        <div><dt>Licence</dt><dd class="small">Standard</dd><span class="help">ends 12 Mar 2027</span><a class="btn link go" href="#/admin/orgs/acme/license">Manage licence</a></div>
+        <div><dt>Expires</dt><dd class="num">174</dd><span class="help">days, calendar date in UTC</span></div>
+        <div><dt>Seats</dt><dd class="num">18 / 24</dd><span class="help">Coordinator is full</span><a class="btn link go" href="#/admin/orgs/acme/license">Manage seats</a></div>
+        <div><dt>Awaiting</dt><dd class="num">3</dd><span class="help">2 awaiting approval, 1 on a seat</span><a class="btn link go" href="#/admin/orgs/acme/requests">Review requests</a></div>
+        <div><dt>Devices</dt><dd class="num">41</dd><a class="btn link go" href="#/admin/devices">View devices</a></div>
+        <div><dt>Last activity</dt><dd class="small">2 hours ago</dd><span class="help">Alice Okonjo, Revit 2025</span></div>
+      </dl>
+      <nav class="tabs" aria-label="Section" data-tabs="/admin/orgs/acme">
+        <a href="#/admin/orgs/acme">Overview</a><a href="#/admin/orgs/acme/domains">Domains</a><a href="#/admin/orgs/acme/license">Licence</a><a href="#/admin/orgs/acme/people">People</a><a href="#/admin/orgs/acme/requests">Requests <span class="pillcount">3</span></a><a href="#/admin/orgs/acme/admins">Admins</a>
+      </nav>
+    </section>
+
+    <!-- Overview -->
+    <section data-route="/admin/orgs/acme" hidden>
+      <div class="grid2">
+        <div class="card">
+          <div class="page-head" style="margin-bottom:16px"><h2 class="h2">Details</h2><button class="btn sm" type="button">Edit</button></div>
+          <dl class="defs">
+            <div><dt>Name</dt><dd>Acme Engineering</dd></div>
+            <div><dt>Slug</dt><dd class="mono" style="font-size:14px">acme-engineering</dd></div>
+            <div><dt>Contact email</dt><dd>ops@acme-eng.com</dd></div>
+            <div><dt>Joining</dt><dd>
+              <div class="seg" role="radiogroup" aria-label="Join policy" id="joinpolicy"><button type="button" role="radio" aria-checked="false" data-v="automatic">Automatic</button><button type="button" role="radio" aria-checked="true" data-v="approval">Approval</button></div>
+              <p class="meta" id="join-help">Anyone who signs in from a registered domain waits until an admin approves them.</p>
+            </dd></div>
+          </dl>
+        </div>
+        <div class="card">
+          <h2 class="h2">Can people sign in?</h2>
+          <p class="meta note">What a first sign-in from acme-eng.com meets today.</p>
+          <ul class="check">
+            <li><span class="ok">✓</span><div>A domain is registered<div class="meta">acme-eng.com</div></div></li>
+            <li><span class="ok">✓</span><div>The licence is active<div class="meta">Standard, 174 days left</div></div></li>
+            <li><span class="ok">✓</span><div>User has a free seat<div class="meta">12 of 16 used. Coordinator is full.</div></div></li>
+            <li><span class="no">–</span><div>Nobody is awaiting approval<div class="meta">2 people are. <a class="btn link go" href="#/admin/orgs/acme/requests">Review requests</a></div></div></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- People -->
+    <section data-route="/admin/orgs/acme/people" hidden><div id="people-portal"></div></section>
+
+    <!-- Requests (org) -->
+    <section data-route="/admin/orgs/acme/requests" hidden><div id="requests-portal"></div></section>
+
+    <!-- Admins -->
+    <section data-route="/admin/orgs/acme/admins" hidden>
+      <div class="tcard">
+        <div class="toolbar">
+          <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" placeholder="Search name or email" aria-label="Search admins"></div>
+          <div class="right"><button class="btn primary" type="button" data-open="dlg-add-admin">Add admin…</button></div>
+        </div>
+        <div class="strip"><span>2 organisation admins</span><button class="btn link cols" type="button">▥ Columns</button></div>
+        <div class="twrap"><table>
+          <thead><tr><th>Name</th><th>Authenticator</th><th>Last sign-in</th><th>Created</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><div class="person"><span class="avatar s40">PN</span><div><div class="n">Priya Natarajan</div><div class="e">priya@acme-eng.com</div></div></div></td><td class="status">Enrolled</td><td class="status">Yesterday, 16:42</td><td class="status">4 Sep 2026 by admin@yourco.local</td><td><div class="rowact"><button class="btn ghost sm" type="button">Reset authenticator…</button><button class="btn ghost sm" type="button">Deactivate…</button></div></td></tr>
+            <tr><td><div class="person"><span class="avatar s40">SO</span><div><div class="n">Sam O'Neill</div><div class="e">sam@acme-eng.com</div></div></div></td><td class="status attn">Enrolment required</td><td class="status">Never</td><td class="status">Today by admin@yourco.local</td><td><div class="rowact"><button class="btn ghost sm" type="button">Reset authenticator…</button><button class="btn ghost sm" type="button">Deactivate…</button></div></td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <p class="meta" style="margin-top:16px">An organisation admin manages members and requests for Acme Engineering only. They cannot change the licence, seats or domains, and they set up their own authenticator and password at first sign-in.</p>
+    </section>
+
+    <!-- ===== GLOBAL REQUESTS ===== -->
+    <section data-route="/admin/requests" hidden>
+      <div class="page-head"><h1 class="h-list">Requests</h1></div>
+      <nav class="tabs" aria-label="Section"><button type="button" class="active" data-tab="acc">Access requests <span class="pillcount">1</span></button><button type="button" data-tab="wait">Members waiting <span class="pillcount">4</span></button></nav>
+      <div id="tab-acc">
+        <p class="lede" style="margin-bottom:16px">People whose email domain matches no organisation. Assign them, or reject.</p>
+        <div class="tcard">
+          <div class="toolbar">
+            <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" placeholder="Search email or domain" aria-label="Search requests"></div>
+            <button class="btn ghost" type="button">▽ Filter</button>
+          </div>
+          <div class="strip"><span>1 request</span><button class="btn link cols" type="button">▥ Columns</button></div>
+          <div class="twrap"><table>
+            <thead><tr><th>Person</th><th>Domain</th><th>Reason</th><th class="r">Attempts</th><th>First seen</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><div class="person"><span class="avatar s40">JT</span><div><div class="n">Jonas Tveit</div><div class="e">jonas@tveit-arkitekter.no</div></div></div></td><td class="mono" style="font-size:14px">tveit-arkitekter.no</td><td class="status">Domain not registered</td><td class="r num b">5</td><td class="status">3 days ago</td><td><div class="rowact"><button class="btn sm" type="button">Review</button></div></td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+      <div id="tab-wait" hidden>
+        <p class="lede" style="margin-bottom:16px">Members of a known organisation who cannot get in yet. The organisation decides who is approved; you decide the licence and the seats.</p>
+        <div class="tcard">
+          <div class="toolbar">
+            <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" placeholder="Search name or email" aria-label="Search waiting members"></div>
+            <button class="btn ghost" type="button">▽ Filter</button>
+          </div>
+          <div class="strip"><span>4 members waiting</span><button class="btn link cols" type="button">▥ Columns</button></div>
+          <div class="twrap"><table>
+            <thead><tr><th>Person</th><th>Organisation</th><th>Reason</th><th class="r">Attempts</th><th>Requested</th><th></th></tr></thead>
+            <tbody>
+              <tr class="clickable" data-href="#/admin/orgs/acme/requests"><td><div class="person"><span class="avatar s40">DR</span><div><div class="n">Dana Reyes</div><div class="e">dana@acme-eng.com</div></div></div></td><td>Acme Engineering</td><td class="status attn">Awaiting approval</td><td class="r num b">7</td><td class="status">2 days ago</td><td class="chev">›</td></tr>
+              <tr class="clickable" data-href="#/admin/orgs/acme/requests"><td><div class="person"><span class="avatar s40">HM</span><div><div class="n">Hugo Martins</div><div class="e">hugo@acme-eng.com</div></div></div></td><td>Acme Engineering</td><td class="status attn">Awaiting approval</td><td class="r num">2</td><td class="status">6 hours ago</td><td class="chev">›</td></tr>
+              <tr class="clickable" data-href="#/admin/orgs/acme/requests"><td><div class="person"><span class="avatar s40">EK</span><div><div class="n">Emil Kowalski</div><div class="e">emil@acme-eng.com</div></div></div></td><td>Acme Engineering</td><td class="status">No seat free</td><td class="r num">1</td><td class="status">5 hours ago</td><td class="chev">›</td></tr>
+              <tr class="clickable" data-href="#/admin/orgs/nordvest"><td><div class="person"><span class="avatar s40">GL</span><div><div class="n">Grace Lin</div><div class="e">grace@nordvest.no</div></div></div></td><td>Nordvest Rådgivning AS</td><td class="status attn">No licence yet</td><td class="r num b">12</td><td class="status">9 days ago</td><td class="chev">›</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ORG ADMIN: OVERVIEW ===== -->
+    <section data-route="/org" hidden>
+      <div class="banner" id="denied" hidden><span class="i">i</span><span>That page is not part of your organisation. You have been brought back to its overview.</span><button class="x" type="button" aria-label="Dismiss" onclick="this.parentNode.hidden=true">×</button></div>
+      <div class="page-head">
+        <div class="who"><span class="avatar s48">AE</span><div><h1 class="h-record">Acme Engineering</h1><p class="meta">Standard licence · Active · joining by approval</p></div></div>
+      </div>
+      <dl class="kpi">
+        <div><dt>Members</dt><dd class="num">18</dd><a class="btn link go" href="#/org/members">View members</a></div>
+        <div><dt>Awaiting</dt><dd class="num">3</dd><span class="help">2 awaiting your approval</span><a class="btn link go" href="#/org/requests">Review requests</a></div>
+        <div><dt>Seats</dt><dd class="small num">User <b>12 / 16</b> · Coordinator <b>6 / 6</b> · Admin <b>0 / 2</b></dd><span class="help">Coordinator is full. Seats are set by DIGIBIM HUB.</span></div>
+        <div><dt>Devices</dt><dd class="num">41</dd><a class="btn link go" href="#/org/devices">View devices</a></div>
+        <div><dt>Licence ends</dt><dd class="small num">12 Mar 2027</dd><span class="help">174 days</span></div>
+      </dl>
+      <div class="grid2">
+        <div class="card">
+          <h2 class="h2">Joining</h2>
+          <p class="meta note">Set by DIGIBIM HUB for your organisation.</p>
+          <dl class="defs">
+            <div><dt>Policy</dt><dd>Approval<p class="meta">Anyone who signs in from a registered domain waits until you approve them.</p></dd></div>
+            <div><dt>Registered domains</dt><dd>acme-eng.com</dd></div>
+            <div><dt>Default role</dt><dd>User</dd></div>
+          </dl>
+        </div>
+        <div class="card">
+          <h2 class="h2">Needs attention</h2>
+          <p class="meta note">Things only you can resolve, and one you cannot.</p>
+          <ul class="attn-list">
+            <li><div><b>2 people are awaiting approval</b><div class="meta">Dana Reyes, Hugo Martins</div></div><a class="btn link go" href="#/org/requests">Review requests</a></li>
+            <li><div><b>Emil Kowalski is waiting on a seat</b><div class="meta">User is 12 of 16. He gets in automatically at his next sign-in, or approve him now.</div></div><a class="btn link go" href="#/org/requests">Review</a></li>
+            <li><div><b>Coordinator has no free seat</b><div class="meta">Ask your account manager for more seats. Members cannot be moved into a full role.</div></div></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section data-route="/org/members" hidden>
+      <div class="page-head"><h1 class="h-list">Members</h1></div>
+      <div id="people-org"></div>
+    </section>
+
+    <section data-route="/org/requests" hidden>
+      <div class="page-head"><h1 class="h-list">Requests</h1></div>
+      <div id="requests-org"></div>
+    </section>
+
+    <!-- ===== PROFILE ===== -->
+    <section data-route="/profile" hidden>
+      <div class="page-head">
+        <div class="who"><span class="avatar s48" data-bind="initials">AR</span><div><h1 class="h-record" data-bind="name">Alex Rivera</h1><p class="meta" data-bind="role">Owner · admin@yourco.local</p></div></div>
+        <div class="actions"><button class="btn" type="button" data-open="dlg-signout">Sign out…</button></div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2 class="h2">Profile</h2>
+          <p class="meta note">What the portal knows about you.</p>
+          <dl class="defs">
+            <div><dt>Email</dt><dd data-bind="email">admin@yourco.local</dd></div>
+            <div><dt>Role</dt><dd data-bind="roledesc">Owner. Everything, including portal users and authenticator resets.</dd></div>
+            <div><dt>Two-factor</dt><dd>Enrolled<p class="meta">since 4 Sep 2026</p></dd></div>
+            <div><dt>Last sign-in</dt><dd>Today, 09:12<p class="meta">from 203.0.113.42</p></dd></div>
+          </dl>
+        </div>
+        <div class="card">
+          <h2 class="h2">Security</h2>
+          <p class="meta note">Sessions last eight hours. Signing out ends every session on every device.</p>
+          <div class="fstack">
+            <div class="field"><label for="pw-cur">Current password</label><input id="pw-cur" type="password"></div>
+            <div class="field"><label for="pw-new">New password</label><input id="pw-new" type="password"><span class="hint">At least 12 characters.</span></div>
+            <div><button class="btn" type="button">Change password</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== NOT BUILT IN THIS MOCK ===== -->
+    <section data-route="*" hidden>
+      <div class="page-head"><h1 class="h-list" id="nb-title">Not in this mock</h1></div>
+      <div class="card notbuilt">
+        <p>This screen keeps its current content and takes the new chrome only: the black header stack, 16 px table cells, statuses as plain text, bordered cards without shadows, and dialogs with the primary action on the right.</p>
+        <p class="meta" style="margin-top:12px">Screens the mock does build:</p>
+        <ul>
+          <li><a class="btn link go" href="#/admin/dashboard">Dashboard</a></li>
+          <li><a class="btn link go" href="#/admin/orgs">Organisations</a></li>
+          <li><a class="btn link go" href="#/admin/orgs/acme">Organisation record, Overview with the join policy</a></li>
+          <li><a class="btn link go" href="#/admin/orgs/acme/people">People with selection and bulk actions</a></li>
+          <li><a class="btn link go" href="#/admin/orgs/acme/requests">Organisation requests</a></li>
+          <li><a class="btn link go" href="#/admin/orgs/acme/admins">Organisation admins</a></li>
+          <li><a class="btn link go" href="#/admin/requests">Global requests with the Members waiting tab</a></li>
+          <li><a class="btn link go" href="#/org">Org admin: Overview, Members, Requests</a></li>
+          <li><a class="btn link go" href="#/profile">Account</a></li>
+          <li><a class="btn link go" href="#/login">Sign in</a></li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer"><span>© 2026 DIGIBIM HUB</span><span>·</span><a href="#">Privacy</a><span>·</span><a href="#">Terms</a><span>·</span><a href="#">Support</a></footer>
+</div>
+
+<!-- ===== TEMPLATES (cloned into both personas) ===== -->
+<template id="tpl-people">
+  <div class="tcard">
+    <div class="toolbar">
+      <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" placeholder="Search name or email" aria-label="Search members"></div>
+      <button class="btn ghost" type="button">▽ Filter</button>
+      <div class="right portal-only"><button class="btn primary" type="button">Add person…</button><button class="btn ghost" type="button" aria-label="More actions">···</button></div>
+    </div>
+    <div class="strip"><span><span class="total">8</span> members</span><span>·</span><span class="sel"><span class="selcount">2</span> selected</span>
+      <div class="bulk"><button class="btn sm bulk-btn" type="button" data-open="dlg-approve">Approve</button><button class="btn sm bulk-btn" type="button">Disable…</button><button class="btn sm bulk-btn" type="button">Change role…</button></div>
+      <button class="btn link cols" type="button">▥ Columns</button>
+    </div>
+    <div class="twrap"><table>
+      <thead><tr><th class="chk"><input type="checkbox" class="selall" aria-label="Select all"></th><th>Person</th><th>Role</th><th>Status</th><th>Last activity</th><th></th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="chk"><input type="checkbox" class="rowchk" checked aria-label="Select row"></td><td><div class="person"><span class="avatar s40">AO</span><div><div class="n">Alice Okonjo</div><div class="e">alice@acme-eng.com</div></div></div></td><td><select class="inline" aria-label="Role for Alice Okonjo"><option>User</option><option disabled>Coordinator — full</option><option>Admin</option></select></td><td class="status">Active</td><td class="status">2 hours ago</td><td></td><td class="chev">›</td></tr>
+        <tr><td class="chk"><input type="checkbox" class="rowchk" checked aria-label="Select row"></td><td><div class="person"><span class="avatar s40">BC</span><div><div class="n">Ben Carter</div><div class="e">ben@acme-eng.com</div></div></div></td><td><select class="inline" aria-label="Role for Ben Carter"><option>User</option><option disabled>Coordinator — full</option><option>Admin</option></select></td><td class="status">Disabled</td><td class="status">3 weeks ago</td><td><div class="rowact"><button class="btn ghost sm" type="button">Enable</button></div></td><td class="chev">›</td></tr>
+        <tr><td class="chk"><input type="checkbox" class="rowchk" aria-label="Select row"></td><td><div class="person"><span class="avatar s40">CD</span><div><div class="n">Chloe Dubois</div><div class="e">chloe@acme-eng.com</div></div></div></td><td><select class="inline" aria-label="Role for Chloe Dubois"><option>User</option><option selected>Coordinator</option><option>Admin</option></select></td><td class="status">Active</td><td class="status">Yesterday</td><td></td><td class="chev">›</td></tr>
+        <tr><td class="chk"><input type="checkbox" class="rowchk" aria-label="Select row"></td><td><div class="person"><span class="avatar s40">DR</span><div><div class="n">Dana Reyes</div><div class="e">dana@acme-eng.com</div></div></div></td><td class="status">User</td><td class="status attn">Awaiting approval</td><td class="status">Never</td><td><div class="rowact"><button class="btn ghost sm" type="button" data-open="dlg-approve">Approve…</button><button class="btn ghost sm" type="button" data-open="dlg-reject">Reject…</button></div></td><td class="chev">›</td></tr>
+        <tr><td class="chk"><input type="checkbox" class="rowchk" aria-label="Select row"></td><td><div class="person"><span class="avatar s40">EK</span><div><div class="n">Emil Kowalski</div><div class="e">emil@acme-eng.com</div></div></div></td><td class="status">User</td><td class="status">No seat free</td><td class="status">Never</td><td><div class="rowact"><button class="btn ghost sm" type="button" data-open="dlg-approve">Approve…</button><button class="btn ghost sm" type="button" data-open="dlg-reject">Reject…</button></div></td><td class="chev">›</td></tr>
+        <tr><td class="chk"><input type="checkbox" class="rowchk" aria-label="Select row"></td><td><div class="person"><span class="avatar s40">FA</span><div><div class="n">Femi Adeyemi</div><div class="e">femi@acme-eng.com</div></div></div></td><td><select class="inline" aria-label="Role for Femi Adeyemi"><option>User</option><option disabled>Coordinator — full</option><option selected>Admin</option></select></td><td class="status">Active</td><td class="status">4 days ago</td><td></td><td class="chev">›</td></tr>
+      </tbody>
+    </table></div>
+    <div class="pager"><span>1–6 of 8</span><div class="right"><button class="btn sm" type="button" disabled>Previous</button><button class="btn sm" type="button">Next</button></div></div>
+  </div>
+</template>
+
+<template id="tpl-requests">
+  <nav class="tabs" aria-label="Request status"><button type="button" class="active" data-rtab="pending">Pending <span class="pillcount">3</span></button><button type="button" data-rtab="rejected">Rejected <span class="pillcount">1</span></button></nav>
+  <div data-rpanel="pending">
+    <div class="banner"><span class="i">i</span><span>Emil Kowalski is waiting on a seat. He gets in automatically at his next sign-in once a User seat is free. Approve him here to choose a different role, or ask your account manager for more seats.</span></div>
+    <div class="tcard">
+      <div class="toolbar">
+        <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" placeholder="Search name or email" aria-label="Search requests"></div>
+      </div>
+      <div class="strip"><span>3 requests</span><span>·</span><span class="sel"><span class="selcount">0</span> selected</span>
+        <div class="bulk"><button class="btn sm bulk-btn" type="button" data-open="dlg-approve" disabled>Approve</button><button class="btn sm bulk-btn" type="button" data-open="dlg-reject" disabled>Reject…</button></div>
+        <button class="btn link cols" type="button">▥ Columns</button>
+      </div>
+      <div class="twrap"><table>
+        <thead><tr><th class="chk"><input type="checkbox" class="selall" aria-label="Select all"></th><th>Person</th><th>Requested</th><th class="r">Attempts</th><th>Reason</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="chk"><input type="checkbox" class="rowchk" aria-label="Select row"></td><td><div class="person"><span class="avatar s40">DR</span><div><div class="n">Dana Reyes</div><div class="e">dana@acme-eng.com</div></div></div></td><td class="status" title="Last tried 5 hours ago">2 days ago</td><td class="r num b">7</td><td class="status attn">Awaiting approval</td><td><div class="rowact"><button class="btn ghost sm" type="button" data-open="dlg-approve">Approve…</button><button class="btn ghost sm" type="button" data-open="dlg-reject">Reject…</button><button class="btn ghost sm" type="button" data-open="dlg-delete" aria-label="More">···</button></div></td></tr>
+          <tr><td class="chk"><input type="checkbox" class="rowchk" aria-label="Select row"></td><td><div class="person"><span class="avatar s40">HM</span><div><div class="n">Hugo Martins</div><div class="e">hugo@acme-eng.com</div></div></div></td><td class="status" title="Last tried 6 hours ago">6 hours ago</td><td class="r num">2</td><td class="status attn">Awaiting approval</td><td><div class="rowact"><button class="btn ghost sm" type="button" data-open="dlg-approve">Approve…</button><button class="btn ghost sm" type="button" data-open="dlg-reject">Reject…</button><button class="btn ghost sm" type="button" data-open="dlg-delete" aria-label="More">···</button></div></td></tr>
+          <tr><td class="chk"><input type="checkbox" class="rowchk" aria-label="Select row"></td><td><div class="person"><span class="avatar s40">EK</span><div><div class="n">Emil Kowalski</div><div class="e">emil@acme-eng.com</div></div></div></td><td class="status" title="Last tried 5 hours ago">5 hours ago</td><td class="r num">1</td><td class="status">No seat free</td><td><div class="rowact"><button class="btn ghost sm" type="button" data-open="dlg-approve">Approve…</button><button class="btn ghost sm" type="button" data-open="dlg-reject">Reject…</button><button class="btn ghost sm" type="button" data-open="dlg-delete" aria-label="More">···</button></div></td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+  <div data-rpanel="rejected" hidden>
+    <div class="tcard">
+      <div class="toolbar">
+        <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" placeholder="Search name or email" aria-label="Search rejected requests"></div>
+      </div>
+      <div class="strip"><span>1 rejected</span><button class="btn link cols" type="button">▥ Columns</button></div>
+      <div class="twrap"><table>
+        <thead><tr><th>Person</th><th>Rejected</th><th>By</th><th>Note</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><div class="person"><span class="avatar s40">FH</span><div><div class="n">Farah Haddad</div><div class="e">farah@acme-eng.com</div></div></div></td><td class="status">3 days ago</td><td class="status">priya@acme-eng.com</td><td class="status">Contractor, not on the account</td><td><div class="rowact"><button class="btn ghost sm" type="button" data-open="dlg-approve">Approve…</button><button class="btn ghost sm" type="button" data-open="dlg-delete">Delete…</button></div></td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <p class="meta" style="margin-top:12px">A rejected person sees "Your request to join this organisation was declined" each time they sign in. Approve to let them in after all; delete to forget the record, so their next sign-in starts a fresh request.</p>
+  </div>
+</template>
+
+<!-- ===== DIALOGS ===== -->
+<dialog id="dlg-approve" aria-labelledby="dlg-approve-title">
+  <form method="dialog">
+    <div class="dhead"><h3 id="dlg-approve-title">Approve Dana Reyes</h3><button type="button" data-close aria-label="Close">×</button></div>
+    <div class="dbody">
+      <p class="meta">dana@acme-eng.com · requested 2 days ago · 7 attempts</p>
+      <div class="field"><label for="ap-role">Role</label>
+        <select id="ap-role"><option value="user">User (default) — 4 free</option><option value="coordinator">Coordinator — full</option><option value="admin">Admin — 2 free</option></select>
+        <span class="hint" id="ap-hint">They take a seat in this role now and are working at their next check.</span>
+      </div>
+    </div>
+    <div class="dfoot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="ap-submit">Approve</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-reject" aria-labelledby="dlg-reject-title">
+  <form method="dialog">
+    <div class="dhead"><h3 id="dlg-reject-title">Reject request</h3><button type="button" data-close aria-label="Close">×</button></div>
+    <div class="dbody">
+      <p>You are about to reject this request:</p>
+      <div class="well">dana@acme-eng.com</div>
+      <p>They stay blocked and see the same message next time they sign in. The note is kept on the request and shown on the Rejected tab.</p>
+      <div class="field"><label for="rj-reason">Reason</label><textarea id="rj-reason" placeholder="At least three characters"></textarea></div>
+    </div>
+    <div class="dfoot"><button class="btn" type="button" data-close>Cancel</button><button class="btn" type="submit">Reject request</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-delete" aria-labelledby="dlg-delete-title">
+  <form method="dialog">
+    <div class="dhead"><h3 id="dlg-delete-title">Delete request</h3><button type="button" data-close aria-label="Close">×</button></div>
+    <div class="dbody">
+      <p>You are about to delete this request:</p>
+      <div class="well">dana@acme-eng.com</div>
+      <p>The record is removed. If they sign in again they start a new request. Only a request that never held a seat can be deleted.</p>
+      <div class="field"><label for="dl-reason">Reason</label><textarea id="dl-reason" placeholder="At least three characters"></textarea></div>
+      <div class="field" style="margin-top:16px"><span class="lbl">Your authenticator code</span><div class="totp" aria-label="Authenticator code"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"></div><span class="hint">Deleting needs step-up confirmation.</span></div>
+    </div>
+    <div class="dfoot"><button class="btn" type="button" data-close>Cancel</button><button class="btn" type="submit">Delete request</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-add-admin" aria-labelledby="dlg-add-admin-title">
+  <form method="dialog" id="add-admin-form">
+    <div class="dhead"><h3 id="dlg-add-admin-title">Add organisation admin</h3><button type="button" data-close aria-label="Close">×</button></div>
+    <div class="dbody" id="aa-form">
+      <div class="fstack">
+        <div class="frow">
+          <div class="field"><label for="aa-name">Name</label><input id="aa-name" value="Priya Natarajan"></div>
+          <div class="field"><label for="aa-email">Email</label><input id="aa-email" type="email" value="priya@acme-eng.com"></div>
+        </div>
+        <div class="field"><span class="lbl">Password</span>
+          <div class="seg" role="radiogroup" aria-label="Password" id="aa-pwmode"><button type="button" role="radio" aria-checked="true" data-v="set">Set a password</button><button type="button" role="radio" aria-checked="false" data-v="gen">Generate one</button></div>
+        </div>
+        <div class="field" id="aa-pwfield"><label for="aa-pw">Password</label><input id="aa-pw" type="password" value="••••••••••••••"><span class="hint">At least 12 characters. They choose their own at first sign-in.</span></div>
+        <div class="field"><span class="lbl">Your authenticator code</span><div class="totp" aria-label="Authenticator code"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1"></div><span class="hint">Creating an admin needs step-up confirmation.</span></div>
+        <div class="banner" style="margin:0"><span class="i">i</span><span>They manage members and requests for Acme Engineering only. At first sign-in they set up an authenticator and choose a new password.</span></div>
+      </div>
+    </div>
+    <div class="dbody" id="aa-done" hidden>
+      <div class="banner" style="margin:0"><span class="i">i</span><div><b>Password for priya@acme-eng.com, shown once</b><div class="well" style="margin:8px 0">Kq7-vRm2-Tz9p-Lw4e</div>Send it over a channel that is not this portal. They will be asked to replace it at first sign-in.</div><button class="btn sm" type="button" style="align-self:flex-start">Copy</button></div>
+    </div>
+    <div class="dfoot"><button class="btn" type="button" data-close id="aa-cancel">Cancel</button><button class="btn primary" type="submit" id="aa-submit">Create admin</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-signout" aria-labelledby="dlg-signout-title">
+  <form method="dialog">
+    <div class="dhead"><h3 id="dlg-signout-title">Sign out</h3><button type="button" data-close aria-label="Close">×</button></div>
+    <div class="dbody">
+      <p>This ends your session on every device, not only this one.</p>
+      <p>You will need your password and a fresh authenticator code to sign in again.</p>
+    </div>
+    <div class="dfoot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" onclick="location.hash='#/login'">Sign out</button></div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  const NAV = {
+    portal: [['#/admin/dashboard', 'Dashboard'], ['#/admin/orgs', 'Organisations'], ['#/admin/users', 'Users'], ['#/admin/devices', 'Devices'], ['#/admin/requests', 'Requests'], ['#/admin/licenses', 'Licences'], ['#/admin/settings', 'Settings']],
+    org: [['#/org', 'Overview'], ['#/org/members', 'Members'], ['#/org/requests', 'Requests'], ['#/org/devices', 'Devices'], ['#/org/activity', 'Activity']],
+  };
+  const PERSONA = {
+    portal: { name: 'Alex Rivera', initials: 'AR', email: 'admin@yourco.local', role: 'Owner · admin@yourco.local', roledesc: 'Owner. Everything, including portal users and authenticator resets.', home: '#/admin/dashboard', bell: '#/admin/requests', bellCount: 4, search: 'Search organisations and people' },
+    org: { name: 'Priya Natarajan', initials: 'PN', email: 'priya@acme-eng.com', role: 'Organisation admin · Acme Engineering', roledesc: 'Organisation admin. Approves and manages the members of Acme Engineering. No licence, domain or portal changes.', home: '#/org', bell: '#/org/requests', bellCount: 3, search: 'Search members' },
+  };
+  const TITLES = { '/admin/users': 'Users', '/admin/devices': 'Devices', '/admin/licenses': 'Licences', '/admin/settings': 'Settings', '/admin/orgs/acme/domains': 'Domains', '/admin/orgs/acme/license': 'Licence', '/org/devices': 'Devices', '/org/activity': 'Activity', '/admin/orgs/byrne': 'Byrne Structural', '/admin/orgs/nordvest': 'Nordvest Rådgivning AS' };
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  let persona = 'portal';
+
+  // Clone shared tables into both personas.
+  function mount(tplId, hostId, isOrg) {
+    const node = $('#' + tplId).content.cloneNode(true);
+    if (isOrg) $$('.portal-only', node).forEach((n) => n.remove());
+    $('#' + hostId).appendChild(node);
+  }
+  mount('tpl-people', 'people-portal', false);
+  mount('tpl-people', 'people-org', true);
+  mount('tpl-requests', 'requests-portal', false);
+  mount('tpl-requests', 'requests-org', true);
+
+  function setPersona(p, navigate) {
+    persona = p;
+    const d = PERSONA[p];
+    $$('.mockbar [data-persona]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.persona === p)));
+    $('#nav').innerHTML = NAV[p].map(([h, l]) => `<a href="${h}">${l}</a>`).join('');
+    $('#brand').href = d.home;
+    $('#avatarbtn').textContent = d.initials;
+    $('#fly-name').textContent = d.name; $('#fly-email').textContent = d.email;
+    $('#bell').href = d.bell; $('#bellcount').textContent = d.bellCount; $('#bell').setAttribute('aria-label', d.bellCount + ' pending requests');
+    $('#gsearch').placeholder = d.search;
+    $$('.flyout .portal-only').forEach((n) => { n.hidden = p !== 'portal'; });
+    $$('[data-bind]').forEach((n) => { n.textContent = d[n.dataset.bind]; });
+    if (navigate) location.hash = d.home;
+  }
+
+  function route() {
+    let path = (location.hash || '#/admin/dashboard').slice(1);
+    // A portal admin following an #/org link becomes the org persona (mock convenience).
+    if (path.startsWith('/org') && persona !== 'org') setPersona('org');
+    // An org admin cannot leave their organisation: bounce to the overview with a banner (the ScopeGuard).
+    if (persona === 'org' && path.startsWith('/admin')) { path = '/org'; $('#denied').hidden = false; history.replaceState(null, '', '#/org'); }
+    const isLogin = path === '/login';
+    $$('.chrome').forEach((n) => { n.hidden = isLogin; });
+    $('#flyout').hidden = true; $('#avatarbtn').setAttribute('aria-expanded', 'false');
+    const sections = $$('main > section');
+    let matched = false;
+    sections.forEach((s) => {
+      if (s.dataset.route === path) { s.hidden = false; matched = true; }
+      else if (s.dataset.prefix && path.startsWith(s.dataset.prefix)) { s.hidden = false; $$('[data-tabs] a', s).forEach((a) => a.classList.toggle('active', a.getAttribute('href') === '#' + path)); }
+      else s.hidden = true;
+    });
+    if (!matched) { const fb = $('[data-route="*"]'); fb.hidden = false; $('#nb-title').textContent = TITLES[path] || 'Not in this mock'; }
+    $$('#nav a').forEach((a) => { const h = a.getAttribute('href').slice(1); a.classList.toggle('active', h === '/org' || h === '/admin/dashboard' ? path === h : path.startsWith(h)); });
+    window.scrollTo(0, 0);
+  }
+
+  // Mock controls
+  $$('.mockbar [data-persona]').forEach((b) => b.addEventListener('click', () => setPersona(b.dataset.persona, true)));
+  $$('.mockbar [data-width]').forEach((b) => b.addEventListener('click', () => {
+    $$('.mockbar [data-width]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $('#frame').className = 'frame w' + b.dataset.width;
+  }));
+  $$('.mockbar [data-go]').forEach((b) => b.addEventListener('click', () => { location.hash = b.dataset.go; }));
+  $('#freshdb').addEventListener('click', () => { const g = $('#getstarted'); g.hidden = !g.hidden; });
+
+  // Profile flyout
+  $('#avatarbtn').addEventListener('click', (e) => { e.stopPropagation(); const f = $('#flyout'); f.hidden = !f.hidden; $('#avatarbtn').setAttribute('aria-expanded', String(!f.hidden)); });
+  document.addEventListener('click', (e) => { if (!e.target.closest('#flyout')) { $('#flyout').hidden = true; $('#avatarbtn').setAttribute('aria-expanded', 'false'); } });
+
+  // Clickable rows
+  document.addEventListener('click', (e) => {
+    const row = e.target.closest('tr.clickable');
+    if (row && !e.target.closest('button, a, input, select')) location.hash = row.dataset.href;
+  });
+
+  // Dialogs
+  document.addEventListener('click', (e) => {
+    const opener = e.target.closest('[data-open]');
+    if (opener) { const d = $('#' + opener.dataset.open); if (d.id === 'dlg-add-admin') resetAddAdmin(); d.showModal(); return; }
+    const closer = e.target.closest('[data-close]');
+    if (closer) closer.closest('dialog').close();
+  });
+  $$('dialog').forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.close(); }));
+
+  // Approve dialog: a full role disables the primary and says why.
+  const apRole = $('#ap-role'), apBtn = $('#ap-submit'), apHint = $('#ap-hint');
+  apRole.addEventListener('change', () => {
+    const full = apRole.value === 'coordinator';
+    apBtn.disabled = full; apBtn.title = full ? 'Coordinator has no free seat.' : '';
+    apHint.textContent = full ? 'Coordinator has no free seat. Choose another role, or ask for more seats.' : 'They take a seat in this role now and are working at their next check.';
+  });
+
+  // Add admin dialog: password mode + success state.
+  function resetAddAdmin() { $('#aa-form').hidden = false; $('#aa-done').hidden = true; $('#aa-submit').hidden = false; $('#aa-cancel').textContent = 'Cancel'; }
+  $$('#aa-pwmode button').forEach((b) => b.addEventListener('click', () => {
+    $$('#aa-pwmode button').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+    $('#aa-pwfield').hidden = b.dataset.v === 'gen';
+  }));
+  $('#add-admin-form').addEventListener('submit', (e) => {
+    const gen = $('#aa-pwmode [aria-checked="true"]').dataset.v === 'gen';
+    if (gen && !$('#aa-form').hidden) { e.preventDefault(); $('#aa-form').hidden = true; $('#aa-done').hidden = false; $('#aa-submit').hidden = true; $('#aa-cancel').textContent = 'Done'; }
+  });
+
+  // Join policy segmented control
+  const JOIN_HELP = { automatic: 'Anyone who signs in from a registered domain gets a seat straight away, if one is free.', approval: 'Anyone who signs in from a registered domain waits until an admin approves them.' };
+  $$('#joinpolicy button').forEach((b) => b.addEventListener('click', () => { $$('#joinpolicy button').forEach((x) => x.setAttribute('aria-checked', String(x === b))); $('#join-help').textContent = JOIN_HELP[b.dataset.v]; }));
+
+  // Selection: select-all, counts, bulk buttons
+  function syncSelection(card) {
+    const rows = $$('.rowchk', card); const n = rows.filter((r) => r.checked).length;
+    const sc = $('.selcount', card); if (sc) sc.textContent = n;
+    $$('.bulk-btn', card).forEach((b) => { b.disabled = n === 0; });
+    const all = $('.selall', card); if (all) { all.checked = n > 0 && n === rows.length; all.indeterminate = n > 0 && n < rows.length; }
+  }
+  $$('.tcard').forEach((card) => {
+    const all = $('.selall', card);
+    if (all) all.addEventListener('change', () => { $$('.rowchk', card).forEach((r) => { r.checked = all.checked; }); syncSelection(card); });
+    $$('.rowchk', card).forEach((r) => r.addEventListener('change', () => syncSelection(card)));
+    syncSelection(card);
+  });
+
+  // In-page tabs (global requests, request status)
+  $$('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+    $$('[data-tab]', b.parentNode).forEach((x) => x.classList.toggle('active', x === b));
+    $('#tab-acc').hidden = b.dataset.tab !== 'acc'; $('#tab-wait').hidden = b.dataset.tab !== 'wait';
+  }));
+  $$('[data-rtab]').forEach((b) => b.addEventListener('click', () => {
+    const host = b.closest('section');
+    $$('[data-rtab]', b.parentNode).forEach((x) => x.classList.toggle('active', x === b));
+    $$('[data-rpanel]', host).forEach((p) => { p.hidden = p.dataset.rpanel !== b.dataset.rtab; });
+  }));
+
+  window.addEventListener('hashchange', route);
+  setPersona('portal', false);
+  route();
+})();
+</script>

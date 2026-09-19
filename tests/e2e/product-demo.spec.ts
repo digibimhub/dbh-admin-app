@@ -94,7 +94,7 @@ test('product demo: one customer, from first contact to a governed ribbon', asyn
   trackOrg(orgId);
 
   // The header already says why nobody can sign in yet: no licence at all.
-  await expect(strip).toContainText('none');
+  await expect(strip).toContainText('None');
 
   /* ---- 2. register the domain ----------------------------------------- */
   /* The domain is how a stranger becomes a member without an invitation.
@@ -174,7 +174,7 @@ test('product demo: one customer, from first contact to a governed ribbon', asyn
 
   await page.reload();
   await expect(page.getByText('1 person is waiting for a seat.')).toBeVisible();
-  await expect(page.getByRole('row').filter({ hasText: BEN })).toContainText('awaiting a seat');
+  await expect(page.getByRole('row').filter({ hasText: BEN })).toContainText('No seat free');
 
   // `seats_exhausted` is NOT an access request. Ben is a member, waiting — the
   // queue is for people the resolver could not place at all. Searched rather
@@ -202,10 +202,11 @@ test('product demo: one customer, from first contact to a governed ribbon', asyn
 
   await page.goto(`/orgs/${orgId}/people`);
   await page.getByRole('row').filter({ hasText: BEN })
-    .getByRole('button', { name: 'Give a seat' }).click();
+    .getByRole('button', { name: 'Approve…' }).click();
+  await page.getByRole('dialog', { name: /^Approve / }).getByRole('button', { name: 'Approve', exact: true }).click();
 
   await expect(page.getByText('1 person is waiting for a seat.')).toBeHidden();
-  await expect(page.getByRole('row').filter({ hasText: BEN })).toContainText('active');
+  await expect(page.getByRole('row').filter({ hasText: BEN })).toContainText('Active');
   // Two of three seats used: two User, and the Coordinator seat still free for
   // the approval in step 7.
   await expect(strip).toContainText('2 / 3');
@@ -250,7 +251,7 @@ test('product demo: one customer, from first contact to a governed ribbon', asyn
   await expect(row).toHaveCount(0);
   await page.getByRole('combobox', { name: 'Filter by status' }).selectOption('approved');
   const approved = page.getByRole('row').filter({ hasText: CHLOE });
-  await expect(approved).toContainText('approved');
+  await expect(approved).toContainText('Approved');
   await expect(approved).toContainText(ORG_NAME);
 
   /* ---- 8. the people screens ------------------------------------------- */

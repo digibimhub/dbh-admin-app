@@ -2,11 +2,16 @@ import {
   SignJWT, jwtVerify, importPKCS8, importSPKI, exportJWK, decodeProtectedHeader,
   type JWK, type JWTPayload,
 } from 'jose';
-import { addinTokenClaims, type AddinTokenClaims } from '@app/shared';
+import { addinTokenClaims, type AddinTokenClaims, type PortalRole } from '@app/shared';
 
 export interface PortalClaims extends JWTPayload {
   sub: string;
-  role: 'owner' | 'admin' | 'support' | 'viewer';
+  /**
+   * Informational. `requireSession` re-reads the portal user row on every
+   * request, so a role change or an org-scope change is immediate rather than
+   * waiting for the cookie to expire; nothing authorises off this claim.
+   */
+  role: PortalRole;
   epoch: number;
   typ: 'session' | 'enrol';
   last_reauth_at?: number;

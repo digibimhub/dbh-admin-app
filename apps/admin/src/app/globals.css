@@ -6,46 +6,55 @@
  * Colour tokens are stored as space-separated RGB channels, not hex, so
  * `tailwind.config.ts` can wrap them as `rgb(var(--x) / <alpha-value>)` and
  * opacity modifiers keep working.
+ *
+ * Values are the ones measured off the Autodesk Account portal
+ * (docs/design/autodesk-portal-reference.md). Black is the brand colour;
+ * colour appears only as information — link, info banner, allow/deny marks.
+ * `warn` is for borders and dots only, never text: #FAA21B on white is 1.9:1.
  */
 :root {
   color-scheme: light;
 
-  --paper: 244 246 248;
-  --paper-2: 237 240 244;
+  --paper: 245 245 245;      /* #F5F5F5 page ground */
+  --paper-2: 247 247 247;    /* #F7F7F7 row hover, wells */
   --card: 255 255 255;
-  --ink: 15 23 42;
-  --ink-2: 71 85 105;
-  /**
-   * Darkened from the prototype's #64748B (100 116 139). That value clears
-   * 4.5:1 on `card` and on nothing else: `paper` is the page ground, the
-   * table `thead` band and the row hover, and `paper-2` backs EmptyState —
-   * so every column header in the product sat at 4.39:1 and EmptyState body
-   * text at 4.16:1. #5F6E85 clears AA on all three grounds (5.18 / 4.78 /
-   * 4.53) and is a ~2% luminance move, invisible beside the original.
-   */
-  --ink-3: 95 110 133;
-  --rule: 227 232 239;
-  --signal: 79 70 229;
-  --signal-soft: 224 231 255;
-  --allow: 21 128 61;
-  --allow-soft: 220 252 231;
-  --deny: 185 28 28;
-  --deny-soft: 254 226 226;
-  --warn: 180 83 9;
-  --warn-soft: 254 243 199;
+  --ink: 0 0 0;
+  --ink-2: 33 33 33;         /* #212121 body copy */
+  --ink-3: 102 102 102;      /* #666666 secondary text, 5.7:1 on card */
+  --rule: 217 217 217;       /* #D9D9D9 */
+  --link: 0 110 175;         /* #006EAF */
+  --focus: 6 150 215;        /* #0696D7 */
+  --info: 95 96 255;         /* #5F60FF */
+  --info-soft: 239 239 255;  /* #EFEFFF */
+  --allow: 43 194 117;       /* #2BC275 */
+  --allow-soft: 228 247 236;
+  --deny: 221 34 34;         /* #DD2222 */
+  --deny-soft: 252 233 233;  /* #FCE9E9 */
+  --warn: 250 162 27;        /* #FAA21B */
+  --warn-soft: 254 243 224;
+  --tooltip: 83 83 83;       /* #535353 */
+  --nav: 0 0 0;
+  --nav-active: 38 38 38;    /* #262626 */
 }
 
-html, body { background: rgb(var(--paper)); color: rgb(var(--ink)); }
+html, body { background: rgb(var(--paper)); color: rgb(var(--ink-2)); }
 body { -webkit-font-smoothing: antialiased; }
-input, select, textarea, button { font: inherit; }
+input, select, textarea, button { font: inherit; color: inherit; }
 
 *:focus-visible {
-  outline: 2px solid rgb(var(--signal));
+  outline: 2px solid rgb(var(--focus));
   outline-offset: 2px;
 }
 
 /* Chart labels are SVG <text>, so they cannot take a `tabular-nums` class. */
 svg text { font-variant-numeric: tabular-nums; }
 
-/* Inter ships at 400/500/600 only — keep <b>/<strong> off synthetic 700. */
-b, strong { font-weight: 600; }
+/* Manrope ships a real 700 and 800, so <b>/<strong> can be genuinely bold. */
+b, strong { font-weight: 700; }
+
+input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: rgb(var(--ink));
+  cursor: pointer;
+}

@@ -16,17 +16,12 @@ import {
  *
  * The screen is built around the split that makes that safe: `key` is set once
  * and never editable, `name` is editable at will. Everything else in the system
- * — member rows, seat rows, the add-in token — references the key, so renaming
- * a role rewrites exactly one column and breaks nothing.
+ * references the key, so renaming a role rewrites exactly one column and
+ * breaks nothing.
  *
- * One row per role, not one card. With scopes gone a role is four facts, and a
- * full-width `Section` each pushed the third one below the fold on a laptop.
- *
- * Scopes are not on this screen at all. `roles.scopes` still decides what the
- * add-in switches on and the values already in the table are untouched, but
- * nothing in the portal reads or writes them any more: a role created here
- * starts with none and grants only the never-gated `general` panel until
- * somebody sets them with a `PATCH /admin/roles/:key`.
+ * Scopes are not on this screen. `roles.scopes` still decides what the add-in
+ * switches on and the values already in the table are untouched, but nothing
+ * in the portal reads or writes them any more.
  */
 export default function RolesPage() {
   const canManage = useCan('role.manage');
@@ -67,13 +62,11 @@ export default function RolesPage() {
       header: 'Role',
       cell: (r) => (
         <>
-          <p className="font-medium flex items-center gap-2">
+          <p className="font-semibold text-ink flex items-center gap-2">
             {r.name}
-            {r.isDefault && (
-              <Pill tone="signal" title="New members are provisioned into this role">default</Pill>
-            )}
+            {r.isDefault && <Pill title="New members are provisioned into this role">Default</Pill>}
           </p>
-          {r.description && <p className="text-meta text-ink-3">{r.description}</p>}
+          {r.description && <p className="text-small text-ink-3">{r.description}</p>}
         </>
       ),
       csv: (r) => r.name,
@@ -82,7 +75,7 @@ export default function RolesPage() {
       key: 'key',
       header: 'Key',
       cell: (r) => (
-        <span className="font-mono text-meta" title="Permanent — every member row and token carries it">
+        <span className="font-mono text-small text-ink-3" title="Permanent. Every member row and token carries it.">
           {r.key}
         </span>
       ),
@@ -91,23 +84,21 @@ export default function RolesPage() {
     {
       key: 'members',
       header: 'Active',
-      className: 'text-right',
+      className: 'text-right tabular-nums',
       headClassName: 'text-right',
-      cell: (r) => <span className="tabular-nums">{r.activeMembers}</span>,
+      cell: (r) => r.activeMembers,
       csv: (r) => String(r.activeMembers),
     },
     {
       key: 'assignable',
       header: 'Assignable',
       cell: (r) => {
-        if (!canManage) {
-          return <Pill tone={r.isActive ? 'allow' : 'neutral'}>{r.isActive ? 'yes' : 'retired'}</Pill>;
-        }
+        if (!canManage) return <span className="text-ink-3">{r.isActive ? 'Yes' : 'Retired'}</span>;
         // The default role has no meaningful switch: the API refuses to
-        // deactivate it, and offering a control that only ever explains its own
-        // refusal is worse than not offering one.
+        // deactivate it, and a control that only explains its own refusal is
+        // worse than none.
         return r.isDefault
-          ? <Pill tone="allow" title="The default role cannot be switched off">always on</Pill>
+          ? <span className="text-ink-3" title="The default role cannot be switched off">Always on</span>
           : (
             <Toggle
               checked={r.isActive}
@@ -123,11 +114,12 @@ export default function RolesPage() {
       key: 'actions',
       header: '',
       className: 'text-right',
-      headClassName: 'text-right',
       cell: (r: RoleRow) => (
-        <span className="inline-flex gap-2">
+        <span className="flex justify-end gap-1 whitespace-nowrap">
           {!r.isDefault && (
             <Button
+              variant="ghost"
+              size="sm"
               disabled={busy || !r.isActive}
               title="New members are provisioned into the default role"
               onClick={() => patch(r.key, { isDefault: true })}
@@ -135,14 +127,14 @@ export default function RolesPage() {
               Make default
             </Button>
           )}
-          <Button variant="ghost" onClick={() => setRenaming(r)}>Rename</Button>
+          <Button variant="ghost" size="sm" onClick={() => setRenaming(r)}>Rename…</Button>
         </span>
       ),
     }] : []),
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <DataTable
@@ -150,6 +142,7 @@ export default function RolesPage() {
         rows={rows}
         rowKey={(r) => r.key}
         csvName="roles"
+        noun="roles"
         empty={{
           title: 'No roles',
           body: 'Nobody can be provisioned until at least one role exists and is marked as the default.',
@@ -160,7 +153,7 @@ export default function RolesPage() {
 
       <Note>
         A key is permanent, and reusing one would attach old members to a new role. Retire a role by
-        switching it off — never by deleting it.
+        switching it off, never by deleting it.
       </Note>
 
       {renaming && (
@@ -185,9 +178,22 @@ function RenameRole({ role, busy, onClose, onSave }: {
   const [name, setName] = useState(role.name);
 
   return (
-    <Modal open title={`Rename ${role.name}`} onClose={onClose}>
+    <Modal
+      open
+      title={`Rename ${role.name}`}
+      onClose={onClose}
+      footer={(
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form="rename-role" disabled={busy || name.trim().length < 2}>
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
+        </>
+      )}
+    >
       <form
-        className="space-y-3"
+        id="rename-role"
+        className="space-y-4"
         onSubmit={(e: FormEvent) => { e.preventDefault(); onSave(name.trim()); }}
       >
         <Field label="Name" hint="What everyone sees. The key never changes.">
@@ -202,12 +208,6 @@ function RenameRole({ role, busy, onClose, onSave }: {
         <p className="text-meta text-ink-3">
           <span className="font-mono">{role.key}</span> stays as it is, so no workstation notices.
         </p>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={busy || name.trim().length < 2}>
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
-        </div>
       </form>
     </Modal>
   );
@@ -230,8 +230,7 @@ function CreateRole({ onCreated }: { onCreated: () => void }) {
     setError(null);
     try {
       // `scopes` is omitted rather than sent empty: `createRoleSchema` defaults
-      // it to [] and `assertScopes` short-circuits on empty, so the role is
-      // created with no grant and there is nothing to validate.
+      // it to [] and `assertScopes` short-circuits on empty.
       await api('/admin/roles', {
         method: 'POST',
         body: JSON.stringify({
@@ -265,7 +264,7 @@ function CreateRole({ onCreated }: { onCreated: () => void }) {
               minLength={2}
             />
           </Field>
-          <Field label="Key" hint="Lowercase snake_case. Permanent — it cannot be changed or reused.">
+          <Field label="Key" hint="Lowercase snake_case. Permanent. It cannot be changed or reused.">
             <TextInput
               value={key}
               onChange={(e) => setKey(e.target.value)}
@@ -284,9 +283,7 @@ function CreateRole({ onCreated }: { onCreated: () => void }) {
           </div>
         </FieldRow>
       </form>
-      <Note>
-        A new role has no seats on any licence, so creating one grants nothing by itself.
-      </Note>
+      <Note>A new role has no seats on any licence, so creating one grants nothing by itself.</Note>
     </Section>
   );
 }

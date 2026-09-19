@@ -7,18 +7,27 @@ const FOCUSABLE = [
   'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
+/** The dialog's action band: right-aligned, Cancel first, primary last. */
+export function ModalFooter({ children }: { children: ReactNode }) {
+  return <div className="flex flex-wrap justify-end gap-3 px-6 py-6 border-t border-rule">{children}</div>;
+}
+
 /**
- * One component for both shapes. A separate `Drawer` would have to re-implement
- * the scrim, Escape, outside-click, `aria-modal`, the focus trap and the scroll
- * lock — which are exactly the parts that are easy to get subtly wrong.
+ * One dialog: 640 px (960 wide), a 60 % scrim, a 77 px header with a ✕, a
+ * `p-6` body and an optional footer band. Forms put `id` on the `<form>` and
+ * `form={id}` on the footer's submit button, so the footer never has to live
+ * inside the form.
+ *
+ * It traps focus, restores it on close, locks body scroll and closes on
+ * Escape — the parts that are easy to get subtly wrong, kept in one place.
  */
-export function Modal({ open, title, onClose, children, wide, variant = 'center' }: {
+export function Modal({ open, title, onClose, children, footer, wide }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  footer?: ReactNode;
   wide?: boolean;
-  variant?: 'center' | 'drawer';
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -53,7 +62,6 @@ export function Modal({ open, title, onClose, children, wide, variant = 'center'
     }
     window.addEventListener('keydown', onKey);
 
-    // Without this the page — and, worse, a drawer's own page — scrolls behind.
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
@@ -78,13 +86,9 @@ export function Modal({ open, title, onClose, children, wide, variant = 'center'
 
   if (!open) return null;
 
-  const drawer = variant === 'drawer';
-
   return (
     <div
-      className={`fixed inset-0 z-50 bg-ink/30 backdrop-blur-[2px] flex ${
-        drawer ? 'justify-end' : 'items-start justify-center p-4 overflow-y-auto'
-      }`}
+      className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 overflow-y-auto"
       onClick={onClose}
       role="presentation"
     >
@@ -94,25 +98,21 @@ export function Modal({ open, title, onClose, children, wide, variant = 'center'
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className={
-          drawer
-            ? `bg-card border-l border-rule shadow-pop w-full h-full overflow-y-auto ${wide ? 'max-w-2xl' : 'max-w-xl'}`
-            : `bg-card border border-rule rounded-md shadow-pop w-full mt-[8vh] mb-10 ${wide ? 'max-w-3xl' : 'max-w-lg'}`
-        }
+        className={`bg-card rounded-sm shadow-pop w-full mt-[8vh] mb-10 text-ink-2 ${wide ? 'max-w-[960px]' : 'max-w-[640px]'}`}
       >
-        <div className={`border-b border-rule px-5 py-3 flex items-center justify-between gap-4 ${
-          drawer ? 'sticky top-0 bg-card z-10' : ''
-        }`}>
-          <h3 className="font-semibold text-title">{title}</h3>
+        <div className="min-h-[77px] px-6 border-b border-rule flex items-center justify-between gap-4">
+          <h2 className="text-dialog font-bold text-ink">{title}</h2>
           <button
+            type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-micro uppercase tracking-wider text-ink-3 hover:text-ink"
+            className="w-9 h-9 -mr-2 rounded-sm grid place-items-center text-[22px] leading-none text-ink hover:bg-paper-2"
           >
-            Close
+            ×
           </button>
         </div>
-        <div ref={body} className="p-5">{children}</div>
+        <div ref={body} className="p-6">{children}</div>
+        {footer && <ModalFooter>{footer}</ModalFooter>}
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import { useCan } from '@/lib/session';
 import { UsersTable } from '@/components/UsersTable';
 import { AddUserDialog } from '@/components/AddUserDialog';
 import { UserCsvImport } from '@/components/UserCsvImport';
-import { Button, PageHeader } from '@/components/ui';
+import { Button, MoreMenu, PageHeader } from '@/components/ui';
 
 export default function UsersPage() {
   const canManage = useCan('user.manage');
@@ -17,15 +17,14 @@ export default function UsersPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="People"
         title="Users"
         lede="Everyone the platform knows about, across every organisation."
-        actions={
+        actions={(
           <>
-            {canImport && <Button onClick={() => setImporting(true)}>Import CSV</Button>}
-            {canManage && <Button variant="primary" onClick={() => setAdding(true)}>Add user</Button>}
+            {canManage && <Button variant="primary" onClick={() => setAdding(true)}>Add user…</Button>}
+            {canImport && <MoreMenu items={[{ label: 'Import CSV…', onSelect: () => setImporting(true) }]} />}
           </>
-        }
+        )}
       />
 
       <UsersTable reloadKey={reloadKey} />

@@ -1,26 +1,27 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, errorMessage, qs } from '@/lib/api';
 import { useUrlState } from '@/lib/useUrlState';
 import { useCan } from '@/lib/session';
-import { formatAbsolute } from '@/lib/format';
-import type { AccessRequest, Organization, Paged, RoleRow } from '@/lib/types';
+import type { AccessRequest, Organization, Paged, RoleRow, UserRow } from '@/lib/types';
 import { DangerDialog } from '@/components/DangerDialog';
 import { Modal } from '@/components/Modal';
+import { Tabs } from '@/components/AppShell';
 import { DataTable, PAGE_SIZE, Pagination, type Column } from '@/components/DataTable';
 import {
-  Button, ErrorNote, Field, Note, PageHeader, Pill, SEARCH_FIELD, Select,
-  StatusPill, TextInput, TimeAgo,
+  Avatar, Button, ErrorNote, Field, InfoBanner, Note, PageHeader, SearchInput, Select,
+  StatusText, TimeAgo,
 } from '@/components/ui';
 
 const STATUSES = ['pending', 'approved', 'rejected', 'expired'] as const;
 
 /**
- * The four reasons the resolver can actually record. `seats_exhausted` is not
- * among them: somebody with no free seat IS a member, waiting, and shows up on
- * /users?status=pending rather than here.
+ * The reasons the resolver records on a global request. `seats_exhausted` and
+ * a missing licence are not among them: somebody in that state IS a member,
+ * waiting, and shows on the Members waiting tab rather than here.
  */
 const REASON_LABEL: Record<string, string> = {
   domain_not_registered: 'Email domain is not registered to any organisation',
@@ -29,23 +30,45 @@ const REASON_LABEL: Record<string, string> = {
   pending_approval: 'No default role is set, so nobody can be provisioned',
 };
 
-/** Attempts at or above this are worth surfacing as a flagged row. */
+/** Attempts at or above this are worth a bold number. */
 const NAGGING = 5;
 
-const FILTER_DEFAULTS = { q: '', status: 'pending' };
+const FILTER_DEFAULTS = { tab: '', q: '', status: 'pending' };
 
 /**
- * The queue, as a table.
- *
- * It used to be a stack of hand-rolled cards, each carrying its own
- * organisation and role `<select>` — so a 200-row queue mounted four hundred
- * of them, and none of what `DataTable` gives every other list (pagination,
- * search, CSV, a columns menu, flagged rows) was available. The decision moved
- * into a dialog: the table is for spotting who to act on, the dialog is for
- * acting.
+ * Two queues on one page. Access requests are people the resolver could not
+ * place at all; Members waiting are people it placed who cannot get in yet —
+ * across every organisation, so a portal admin sees which ones need a licence
+ * or seats without opening each.
  */
 export default function RequestsPage() {
-  const { values, set, page, reset, activeFilterCount } = useUrlState(FILTER_DEFAULTS);
+  const { values, set } = useUrlState(FILTER_DEFAULTS);
+  const waiting = values.tab === 'waiting';
+
+  return (
+    <div>
+      <PageHeader title="Requests" />
+
+      <Tabs
+        items={[
+          { href: '/requests', label: 'Access requests', active: !waiting },
+          { href: '/requests?tab=waiting', label: 'Members waiting', active: waiting },
+        ]}
+      />
+
+      {waiting
+        ? <MembersWaiting q={values.q} onSearch={(q) => set({ q })} />
+        : <AccessRequests status={values.status} q={values.q} onSet={(patch) => set(patch)} />}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------- access requests */
+
+function AccessRequests({ status, q, onSet }: {
+  status: string; q: string; onSet: (patch: Partial<Record<'q' | 'status' | 'page', string | number>>) => void;
+}) {
+  const { page } = useUrlState(FILTER_DEFAULTS);
   const [data, setData] = useState<Paged<AccessRequest> | null>(null);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [roles, setRoles] = useState<RoleRow[]>([]);
@@ -58,13 +81,11 @@ export default function RequestsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    api<Paged<AccessRequest>>(`/admin/access-requests${qs({
-      status: values.status, q: values.q, page, pageSize: PAGE_SIZE,
-    })}`)
+    api<Paged<AccessRequest>>(`/admin/access-requests${qs({ status, q, page, pageSize: PAGE_SIZE })}`)
       .then((d) => { setData(d); setError(null); })
       .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setLoading(false));
-  }, [values.status, values.q, page]);
+  }, [status, q, page]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -75,32 +96,37 @@ export default function RequestsPage() {
 
   const orgById = useMemo(() => new Map(orgs.map((o) => [o.id, o])), [orgs]);
   const rows = data?.rows ?? [];
-  const pending = values.status === 'pending';
+  const pending = status === 'pending';
+  const filtered = status !== 'pending' || q !== '';
 
   const columns: Column<AccessRequest>[] = [
     {
       key: 'person',
       header: 'Person',
       cell: (r) => (
-        <>
-          <p className="font-medium">{r.email}</p>
-          {r.displayName && <p className="text-meta text-ink-3">{r.displayName}</p>}
-        </>
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar name={r.displayName} email={r.email} />
+          <div className="min-w-0">
+            <div className="font-semibold text-ink truncate">{r.displayName ?? r.email}</div>
+            {r.displayName && <div className="text-small text-ink-3 truncate">{r.email}</div>}
+          </div>
+        </div>
       ),
       csv: (r) => r.email,
     },
     {
       key: 'domain',
       header: 'Domain',
-      cell: (r) => <span className="font-mono text-meta">{r.emailDomain ?? '—'}</span>,
+      cell: (r) => <span className="font-mono text-small">{r.emailDomain ?? '—'}</span>,
       csv: (r) => r.emailDomain ?? '',
     },
     {
       key: 'reason',
       header: 'Reason',
       cell: (r) => (
-        <span title={REASON_LABEL[r.reason] ?? r.reason}>
-          <Pill tone="warn">{r.reason}</Pill>
+        <span className="block">
+          <span className="text-ink-3">{REASON_LABEL[r.reason] ?? r.reason}</span>
+          <span className="block font-mono text-micro text-ink-3">{r.reason}</span>
         </span>
       ),
       csv: (r) => r.reason,
@@ -108,30 +134,22 @@ export default function RequestsPage() {
     {
       key: 'attempts',
       header: 'Attempts',
-      className: 'text-right',
+      className: 'text-right tabular-nums',
       headClassName: 'text-right',
-      // A number that means act on this gets a pill; a first attempt is just a
-      // number, which is the rule the organisations list already follows.
-      cell: (r) => (r.attemptCount >= NAGGING
-        ? <Pill tone="warn">{r.attemptCount}</Pill>
-        : <span className="tabular-nums text-ink-3">{r.attemptCount}</span>),
+      cell: (r) => <span className={r.attemptCount >= NAGGING ? 'font-bold text-ink' : 'text-ink-3'}>{r.attemptCount}</span>,
       csv: (r) => String(r.attemptCount),
     },
     {
       key: 'waiting',
-      header: 'Waiting since',
-      cell: (r) => (
-        <span title={formatAbsolute(r.firstAttemptAt)}>
-          <TimeAgo value={r.firstAttemptAt} className="tabular-nums text-meta text-ink-2" />
-        </span>
-      ),
+      header: 'First seen',
+      cell: (r) => <TimeAgo value={r.firstAttemptAt} className="text-ink-3" />,
       csv: (r) => r.firstAttemptAt,
     },
     {
       key: 'last',
       header: 'Last tried',
       optional: true,
-      cell: (r) => <TimeAgo value={r.lastAttemptAt} className="tabular-nums text-meta text-ink-2" />,
+      cell: (r) => <TimeAgo value={r.lastAttemptAt} className="text-ink-3" />,
       csv: (r) => r.lastAttemptAt,
     },
     {
@@ -139,7 +157,7 @@ export default function RequestsPage() {
       header: 'Machine',
       optional: true,
       cell: (r) => (
-        <span className="text-meta">
+        <span className="text-ink-3">
           {r.machineName ?? 'unknown'}{r.revitVersion ? ` · Revit ${r.revitVersion}` : ''}
         </span>
       ),
@@ -149,9 +167,7 @@ export default function RequestsPage() {
       key: 'verified',
       header: 'Email',
       optional: true,
-      cell: (r) => (r.emailVerified
-        ? <Pill tone="allow">verified</Pill>
-        : <Pill tone="deny">unverified</Pill>),
+      cell: (r) => <span className={r.emailVerified ? 'text-ink-3' : 'text-ink font-semibold'}>{r.emailVerified ? 'Verified' : 'Unverified'}</span>,
       csv: (r) => (r.emailVerified ? 'verified' : 'unverified'),
     },
     {
@@ -162,15 +178,15 @@ export default function RequestsPage() {
       cell: (r) => {
         if (r.status === 'pending') {
           return canReview
-            ? <Button onClick={() => setReviewing(r)}>Review</Button>
-            : <span className="text-ink-3 text-meta">—</span>;
+            ? <Button size="sm" onClick={() => setReviewing(r)}>Review</Button>
+            : <span className="text-ink-3">—</span>;
         }
         const org = r.assignedOrgId ? orgById.get(r.assignedOrgId) : undefined;
         return (
           <span className="inline-flex items-center gap-2">
-            <StatusPill status={r.status} />
+            <StatusText status={r.status} />
             {org && (
-              <Link href={`/orgs/${org.id}`} className="text-signal hover:underline text-meta">
+              <Link href={`/orgs/${org.id}`} className="text-link hover:underline text-small">
                 {org.name}
               </Link>
             )}
@@ -183,11 +199,10 @@ export default function RequestsPage() {
 
   return (
     <div>
-      <PageHeader
-        eyebrow="Queue"
-        title="Access requests"
-        lede="People the add-in could not place in an organisation. Approving makes them a member and takes a seat."
-      />
+      <h2 className="text-title font-bold text-ink mb-1">Access requests</h2>
+      <p className="text-body text-ink-2 max-w-[65ch] mb-4">
+        People whose email domain matches no organisation. Assign them, or reject.
+      </p>
 
       {error && <ErrorNote>{error}</ErrorNote>}
 
@@ -197,46 +212,36 @@ export default function RequestsPage() {
         rowKey={(r) => r.id}
         loading={loading}
         csvName="access-requests"
-        // Somebody on their fortieth blocked attempt looked exactly like a
-        // first-timer before this.
-        flagRow={(r) => (r.status === 'pending' && r.attemptCount >= NAGGING
-          ? `Blocked ${r.attemptCount} times`
-          : null)}
+        noun="requests"
+        total={data?.total}
+        flagRow={(r) => (r.status === 'pending' && r.attemptCount >= NAGGING ? `Blocked ${r.attemptCount} times` : null)}
         filters={(
           <>
-            <TextInput
+            <SearchInput
               placeholder="Search email or domain"
-              defaultValue={values.q}
-              onKeyDown={(e) => { if (e.key === 'Enter') set({ q: (e.target as HTMLInputElement).value }); }}
-              className={SEARCH_FIELD}
+              defaultValue={q}
+              onSearch={(next) => onSet({ q: next })}
               aria-label="Search access requests"
             />
             <Select
-              value={values.status}
-              onChange={(e) => set({ status: e.target.value })}
+              value={status}
+              onChange={(e) => onSet({ status: e.target.value })}
               className="!w-auto"
               aria-label="Filter by status"
             >
-              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {STATUSES.map((s) => <option key={s} value={s}>{s[0]!.toUpperCase()}{s.slice(1)}</option>)}
             </Select>
-            {activeFilterCount > 0 && <Button variant="ghost" onClick={reset}>Clear</Button>}
+            {filtered && <Button variant="ghost" onClick={() => onSet({ q: '', status: 'pending' })}>Clear</Button>}
           </>
         )}
         empty={{
-          title: pending ? 'Queue is empty' : `No ${values.status} requests`,
+          title: pending ? 'Queue is empty' : `No ${status} requests`,
           body: pending
             ? 'A request appears when somebody signs in from the add-in on a domain no organisation has registered.'
             : 'Nothing has reached this state yet.',
-          action: activeFilterCount ? <Button variant="ghost" onClick={reset}>Clear filters</Button> : undefined,
+          action: filtered ? <Button variant="ghost" onClick={() => onSet({ q: '', status: 'pending' })}>Clear filters</Button> : undefined,
         }}
-        pagination={(
-          <Pagination
-            page={page}
-            pageSize={PAGE_SIZE}
-            total={data?.total ?? 0}
-            onPage={(p) => set({ page: p })}
-          />
-        )}
+        pagination={<Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onPage={(p) => onSet({ page: p })} />}
       />
 
       <Note>Approving takes a seat in the chosen role, so a full role refuses.</Note>
@@ -256,6 +261,7 @@ export default function RequestsPage() {
         <DangerDialog
           open
           title="Reject access request"
+          verb="reject"
           targetKind="access request"
           target={`${rejecting.email} · ${rejecting.machineName ?? 'unknown machine'}`}
           consequence="The person stays blocked and sees the same denial next time. The note is stored on the request."
@@ -277,12 +283,8 @@ export default function RequestsPage() {
 }
 
 /**
- * One decision, one dialog.
- *
- * The choices used to live in two objects keyed by request id on the page,
- * which `load()` never cleared — so a reload left a stale organisation
- * selected against a row somebody else had already approved. Holding them here
- * means they cannot outlive the decision they belong to.
+ * One decision, one dialog. The choices live here so they cannot outlive the
+ * decision they belong to.
  */
 function ReviewDialog({ request, orgs, roles, onClose, onReject, onApproved }: {
   request: AccessRequest;
@@ -314,35 +316,46 @@ function ReviewDialog({ request, orgs, roles, onClose, onReject, onApproved }: {
   }
 
   return (
-    <Modal open title="Review access request" onClose={onClose}>
-      <div className="space-y-3">
+    <Modal
+      open
+      title="Review access request"
+      onClose={onClose}
+      footer={(
+        <>
+          <Button onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button onClick={onReject} disabled={busy}>Reject…</Button>
+          <Button variant="primary" onClick={approve} disabled={busy || !orgId}>
+            {busy ? 'Approving…' : 'Approve'}
+          </Button>
+        </>
+      )}
+    >
+      <div className="space-y-4">
         {error && <ErrorNote>{error}</ErrorNote>}
 
-        <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-y-1.5 text-body">
-          <dt className="text-micro uppercase tracking-[0.1em] text-ink-3 pt-0.5">Person</dt>
+        <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-y-2 text-body">
+          <dt className="text-meta font-bold text-ink pt-0.5">Person</dt>
           <dd>
             {request.email}
             {request.displayName && <span className="text-ink-3"> · {request.displayName}</span>}
           </dd>
-          <dt className="text-micro uppercase tracking-[0.1em] text-ink-3 pt-0.5">Domain</dt>
-          <dd className="font-mono text-meta">{request.emailDomain ?? '—'}</dd>
-          <dt className="text-micro uppercase tracking-[0.1em] text-ink-3 pt-0.5">Reason</dt>
-          <dd className="text-meta">{REASON_LABEL[request.reason] ?? request.reason}</dd>
-          <dt className="text-micro uppercase tracking-[0.1em] text-ink-3 pt-0.5">Machine</dt>
-          <dd className="text-meta">
+          <dt className="text-meta font-bold text-ink pt-0.5">Domain</dt>
+          <dd className="font-mono text-small">{request.emailDomain ?? '—'}</dd>
+          <dt className="text-meta font-bold text-ink pt-0.5">Reason</dt>
+          <dd className="text-ink-2">{REASON_LABEL[request.reason] ?? request.reason}</dd>
+          <dt className="text-meta font-bold text-ink pt-0.5">Machine</dt>
+          <dd className="text-ink-2">
             {request.machineName ?? 'unknown'}
             {request.revitVersion ? ` · Revit ${request.revitVersion}` : ''}
           </dd>
-          <dt className="text-micro uppercase tracking-[0.1em] text-ink-3 pt-0.5">Attempts</dt>
-          <dd className="text-meta tabular-nums">
+          <dt className="text-meta font-bold text-ink pt-0.5">Attempts</dt>
+          <dd className="text-ink-2 tabular-nums">
             {request.attemptCount}, first <TimeAgo value={request.firstAttemptAt} />
           </dd>
         </dl>
 
         {!request.emailVerified && (
-          <p className="bg-warn-soft text-warn border border-warn/30 rounded-sm px-3 py-2 text-meta">
-            Autodesk has not verified this address. Approving still creates the member.
-          </p>
+          <InfoBanner className="!mb-0">Autodesk has not verified this address. Approving still creates the member.</InfoBanner>
         )}
 
         <Field label="Organisation">
@@ -360,15 +373,105 @@ function ReviewDialog({ request, orgs, roles, onClose, onReject, onApproved }: {
             ))}
           </Select>
         </Field>
-
-        <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="danger" onClick={onReject}>Reject…</Button>
-          <Button variant="primary" onClick={approve} disabled={busy || !orgId}>
-            {busy ? 'Approving…' : 'Approve'}
-          </Button>
-        </div>
       </div>
     </Modal>
+  );
+}
+
+/* --------------------------------------------------------- members waiting */
+
+/**
+ * `GET /admin/users?status=pending` across every organisation. A row opens
+ * that organisation's queue, where the approving happens.
+ */
+function MembersWaiting({ q, onSearch }: { q: string; onSearch: (q: string) => void }) {
+  const router = useRouter();
+  const { page, set } = useUrlState(FILTER_DEFAULTS);
+  const [data, setData] = useState<Paged<UserRow> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    api<Paged<UserRow>>(`/admin/users${qs({ status: 'pending', q, page, pageSize: PAGE_SIZE })}`)
+      .then((d) => { setData(d); setError(null); })
+      .catch((e: unknown) => setError(errorMessage(e)))
+      .finally(() => setLoading(false));
+  }, [q, page]);
+
+  const rows = data?.rows ?? [];
+
+  const columns: Column<UserRow>[] = [
+    {
+      key: 'person', header: 'Person',
+      cell: (r) => (
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar name={r.user.displayName} email={r.user.email} />
+          <div className="min-w-0">
+            <div className="font-semibold text-ink truncate">{r.user.displayName ?? r.user.email ?? '—'}</div>
+            <div className="text-small text-ink-3 truncate">{r.user.email ?? 'no email on record'}</div>
+          </div>
+        </div>
+      ),
+      csv: (r) => `${r.user.displayName ?? ''} <${r.user.email ?? ''}>`,
+    },
+    { key: 'org', header: 'Organisation', cell: (r) => r.orgName, csv: (r) => r.orgName },
+    {
+      key: 'reason', header: 'Reason',
+      cell: (r) => <StatusText status={r.user.status} reason={r.user.pendingReason} />,
+      csv: (r) => r.user.pendingReason ?? r.user.status,
+    },
+    {
+      key: 'attempts', header: 'Attempts', className: 'text-right tabular-nums', headClassName: 'text-right',
+      cell: (r) => {
+        const n = r.user.attemptCount;
+        if (n === undefined) return <span className="text-ink-3">—</span>;
+        return <span className={n >= NAGGING ? 'font-bold text-ink' : 'text-ink-3'}>{n}</span>;
+      },
+      csv: (r) => String(r.user.attemptCount ?? ''),
+    },
+    {
+      key: 'requested', header: 'Requested',
+      cell: (r) => <TimeAgo value={r.user.firstSeenAt} className="text-ink-3" />,
+      csv: (r) => r.user.firstSeenAt,
+    },
+  ];
+
+  return (
+    <div>
+      <h2 className="text-title font-bold text-ink mb-1">Members waiting</h2>
+      <p className="text-body text-ink-2 max-w-[65ch] mb-4">
+        Members of a known organisation who cannot get in yet. The organisation decides who is
+        approved; you decide the licence and the seats.
+      </p>
+
+      {error && <ErrorNote>{error}</ErrorNote>}
+
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.user.id}
+        loading={loading}
+        csvName="members-waiting"
+        noun="members waiting"
+        total={data?.total}
+        onRowClick={(r) => router.push(`/orgs/${r.user.orgId}/requests`)}
+        filters={(
+          <SearchInput
+            placeholder="Search name or email"
+            defaultValue={q}
+            onSearch={onSearch}
+            aria-label="Search waiting members"
+          />
+        )}
+        empty={{
+          title: q ? 'Nobody matches that search' : 'Nobody is waiting',
+          body: q
+            ? 'Clear the search to see everyone.'
+            : 'A member waits here when their organisation asks for approval, when their role has no free seat, or while the organisation has no licence.',
+        }}
+        pagination={<Pagination page={page} pageSize={PAGE_SIZE} total={data?.total ?? 0} onPage={(p) => set({ page: p, tab: 'waiting', q })} />}
+      />
+    </div>
   );
 }

@@ -4,10 +4,13 @@ import { db, schema as s } from '@app/db';
 import { createPanelSchema, patchPanelSchema } from '@app/shared';
 import { notFound, badRequest } from '../../lib/errors';
 import { requiredParam } from '../../lib/params';
-import { requireCapability } from '../../middleware/auth';
+import { requireCapability, requireGlobal } from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
 
 export const panels = new Hono();
+
+// The scope catalogue is platform configuration, not customer data.
+panels.use('*', requireGlobal());
 
 panels.get('/', async (c) => {
   const rows = await db.select().from(s.panelDefinitions).orderBy(asc(s.panelDefinitions.sortOrder));

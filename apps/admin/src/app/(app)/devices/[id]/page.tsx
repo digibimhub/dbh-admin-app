@@ -5,23 +5,22 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api, errorMessage } from '@/lib/api';
 import { formatAbsolute, shortHash } from '@/lib/format';
-import { useCan } from '@/lib/session';
+import { useCan, useScope } from '@/lib/session';
 import type { DeviceUsage } from '@/lib/types';
 import { DangerDialog } from '@/components/DangerDialog';
 import { LineChart } from '@/components/charts';
 import {
-  Button, ErrorNote, FormGrid, Loading, Note, Row, Section, StatusPill, TimeAgo,
+  Button, ErrorNote, FormGrid, Loading, PageHeader, Row, Section, StatusText, TimeAgo,
 } from '@/components/ui';
 
 /**
- * What used to be the devices drawer.
- *
- * Its 30-day usage chart is the reason a device is worth its own screen rather
- * than a wider row: it is one request per device, made when somebody asks for
- * this machine, not fifty requests for a page of them.
+ * A device's own screen. Its 30-day usage chart is the reason it is a page
+ * rather than a wider row: one request per device, made when somebody asks
+ * for this machine, not fifty requests for a page of them.
  */
 export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const scope = useScope();
   const canManage = useCan('device.manage');
 
   const [usage, setUsage] = useState<DeviceUsage | null>(null);
@@ -53,40 +52,38 @@ export default function DeviceDetailPage() {
   if (!usage) return <Loading what="Loading device" />;
 
   const d = usage.device;
+  const name = d.machineName ?? shortHash(d.deviceHash, 24);
+  const listHref = scope.kind === 'org' ? '/org/devices' : '/devices';
 
   return (
     <div>
-      <div className="flex flex-wrap items-start gap-3 mb-4">
-        <div className="min-w-0">
-          <p className="text-meta text-ink-3 mb-1">
-            <Link href="/devices" className="text-signal hover:underline">Devices</Link>
-            <span className="mx-1.5">/</span>
-            <span>{d.machineName ?? shortHash(d.deviceHash, 24)}</span>
-          </p>
-          <h2 className="font-semibold text-page leading-tight tracking-tight flex items-center gap-2.5 flex-wrap">
-            {d.machineName ?? <span className="text-ink-3">unnamed machine</span>}
-            <StatusPill status={d.status} />
-          </h2>
-        </div>
-        {canManage && (
-          <div className="ml-auto pt-1">
-            {d.status === 'disabled'
-              ? <Button variant="secondary" disabled={busy} onClick={enable}>Enable device</Button>
-              : <Button variant="danger" onClick={() => setDisabling(true)}>Disable device</Button>}
-          </div>
+      <PageHeader
+        variant="record"
+        breadcrumb={[{ label: 'Devices', href: listHref }, { label: name }]}
+        title={d.machineName ?? 'Unnamed machine'}
+        subline={(
+          <>
+            <StatusText status={d.status} attention={d.status === 'disabled'} />
+            {' · '}<span className="font-mono">{shortHash(d.deviceHash)}</span>
+          </>
         )}
-      </div>
+        actions={canManage && (
+          d.status === 'disabled'
+            ? <Button disabled={busy} onClick={enable}>Enable device</Button>
+            : <Button onClick={() => setDisabling(true)}>Disable device…</Button>
+        )}
+      />
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         <Section title="Machine">
           <FormGrid>
             <Row label="Organisation">
-              <Link href={`/orgs/${d.orgId}`} className="text-signal hover:underline">Open organisation</Link>
+              <Link href={scope.kind === 'org' ? '/org' : `/orgs/${d.orgId}`} className="text-link hover:underline">Open organisation</Link>
             </Row>
             <Row label="Person">
               {d.orgUserId
-                ? <Link href={`/users/${d.orgUserId}`} className="text-signal hover:underline">Open person</Link>
-                : <span className="text-warn">unlinked — validated without resolving to a person</span>}
+                ? <Link href={`/users/${d.orgUserId}`} className="text-link hover:underline">Open person</Link>
+                : <span className="font-semibold">Unlinked. Validated without resolving to a person.</span>}
             </Row>
             <Row label="Revit versions">
               <span className="tabular-nums">{(d.revitVersions ?? []).join(', ') || '—'}</span>
@@ -101,7 +98,7 @@ export default function DeviceDetailPage() {
               <span title={formatAbsolute(d.lastSeenAt)}><TimeAgo value={d.lastSeenAt} /></span>
             </Row>
             <Row label="Device hash" hint="Recorded for analytics only. Never trusted for an access decision.">
-              <span className="font-mono text-meta break-all">{d.deviceHash}</span>
+              <span className="font-mono text-small break-all">{d.deviceHash}</span>
             </Row>
           </FormGrid>
         </Section>
@@ -114,7 +111,7 @@ export default function DeviceDetailPage() {
             </p>
           ) : (
             <>
-              <p className="tabular-nums text-meta text-ink-2 mb-3">
+              <p className="tabular-nums text-meta text-ink-3 mb-4">
                 {usage.totals.activeDays} active day{usage.totals.activeDays === 1 ? '' : 's'} ·{' '}
                 {usage.totals.launches} launches · {usage.totals.activeMinutes} minutes
               </p>
@@ -131,8 +128,9 @@ export default function DeviceDetailPage() {
       <DangerDialog
         open={disabling}
         title="Disable device"
+        verb="disable"
         targetKind="device"
-        target={d.machineName ?? shortHash(d.deviceHash, 24)}
+        target={name}
         consequence="Validations from this machine are denied with device_disabled, for every person who signs in on it."
         confirmLabel="Disable device"
         onCancel={() => setDisabling(false)}

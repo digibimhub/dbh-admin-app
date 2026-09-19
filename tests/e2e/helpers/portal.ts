@@ -23,6 +23,8 @@ export const PORTAL_EMAIL = {
   owner: 'admin@yourco.local',
   support: 'support@yourco.local',
   viewer: 'viewer@yourco.local',
+  /** Scoped to DigiBIM Internal; enrolled and past the forced password change. */
+  orgAdmin: 'orgadmin@digibimhub.com',
 } as const;
 
 export type PortalRoleName = keyof typeof PORTAL_EMAIL;

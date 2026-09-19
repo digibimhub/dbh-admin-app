@@ -1,12 +1,32 @@
 ---
 name: ui-conventions
-description: How screens in the admin portal are built — the ui.tsx primitives, DataTable, Modal, capability-gated controls, URL-backed filters, and the tone/format rules. Load before adding or changing any screen, table, dialog, form or status indicator in apps/admin.
+description: How screens in the admin portal are built — the ui.tsx primitives, DataTable (with selection), Modal with a footer band, capability-gated controls, the two personas and their scope, URL-backed filters, statuses as text, and the tone/format rules. Load before adding or changing any screen, table, dialog, form or status indicator in apps/admin.
 ---
 
 # Admin portal UI conventions
 
 Everything lives in `apps/admin/src/`. There is a real design system here; do not
 hand-roll a `<table>`, a `<dialog>`, or a coloured `<span>`.
+
+The visual target is the Autodesk Account portal, measured in
+`docs/design/autodesk-portal-reference.md` and approved as
+`docs/design/mock/portal-mock.html`. What that means in practice:
+
+- **Black is the brand colour.** The primary button is black; the header stack
+  is black. Colour appears only as information: `link` for links, `info` for the
+  one banner, `allow`/`deny` for marks. `warn` is a border-and-dot colour, never
+  text (it fails contrast on white).
+- **Type is Manrope, big and heavy, never uppercase.** The `fontSize` ladder in
+  `tailwind.config.ts` is *replaced*, not extended: `micro label meta small body
+  control dialog title page record kpi`. A stray `text-lg` renders at browser
+  default on purpose. No `uppercase`, no `tracking-*`, anywhere.
+- **Borders, not shadows.** Cards are `border border-rule rounded-md`. The only
+  `shadow-pop` in the product is on dialogs and menus.
+- **Statuses are words.** `StatusText` renders plain grey text; `attention` makes
+  it 600 black. There are no coloured pills and no red button.
+- **Buttons that open a dialog end in an ellipsis** (`Suspend…`, `Approve…`).
+  Buttons that act at once do not (`Enable`, `Approve` inside the dialog).
+- British spelling, sentence case, no exclamation marks.
 
 ## Primitives — `src/components/ui.tsx`
 
@@ -15,98 +35,133 @@ that adjusts layout.
 
 | Primitive | Use for |
 | --- | --- |
-| `PageHeader({ eyebrow, title, lede, actions })` | Top of a detail screen |
-| `Section({ title, note, actions })` | A card-ish grouping inside a screen |
-| `Button({ variant })` | `primary` \| `secondary` (default) \| `ghost` |
-| `Field({ label, hint })` | Label + control in a dialog |
-| `FieldRow({ cols })` | Two to four `Field`s side by side |
-| `Row({ label, hint, htmlFor, width })` | Label + control inside `FormGrid` |
-| `FormGrid` / `FormBar` | Settings-style forms and their action bar |
-| `TextInput` / `TextArea` / `Select` / `Toggle` | Controls |
-| `Pill({ tone })` / `StatusPill({ status })` | Status and counts |
+| `PageHeader({ title, breadcrumb, lede, actions, avatar, subline, variant })` | Top of every screen. `variant="record"` = 48 px avatar, 34/800 title, grey sub-line |
+| `Breadcrumb({ items })` | `Organisations / Acme` above a record title (`PageHeader` takes it as a prop) |
+| `Avatar({ name, email, size, dark })` | Two-letter initials on a disc: 40 in rows, 48 on records, 44 in the header |
+| `KpiStrip({ items })` | One panel split by hairlines. Renders a `<dl>` — e2e reads the first `dl` on an org page |
+| `Section({ title, note, actions })` | A bordered card with a 21/700 heading |
+| `Button({ variant, size, icon })` | `primary` (black) \| `secondary` (outline, default) \| `ghost` \| `link` (+ `icon="go"` for the ⊕ motif). `size="sm"` for row actions |
+| `ButtonLink`, `GoLink` | A navigation that looks like a button / the ⊕ text link |
+| `Field({ label, hint })` / `FieldRow({ cols })` | Label above control, in a dialog |
+| `Row({ label, hint, htmlFor, width })` / `FormGrid` / `FormBar` | Settings-style forms; read and edit share one grid |
+| `TextInput` / `TextArea` / `Select` / `Toggle` / `SearchInput` / `SegmentedControl` | Controls |
+| `Pill({ tone })` | `neutral` (a tag) or `count` (a number on a tab or the bell). Nothing else |
+| `StatusText({ status, reason, attention })` | Every status. Maps `pending` + `pendingReason` to Awaiting approval / No seat free / No licence yet |
 | `TimeAgo({ value })` | Any timestamp — relative, absolute on hover |
-| `EmptyState` / `Loading` / `ErrorNote` / `Note` | The four states |
-| `DefList({ items })` | Label/value pairs |
+| `InfoBanner`, `ErrorNote`, `EmptyState`, `Loading`/`Skeleton`, `Note` | The states |
+| `DefList({ items })` | Label/value rows |
+| `MoreMenu({ items })` | The `···` overflow, for the one or two actions that do not earn a button |
 
 ### Never align a row of fields with `items-end`
 
-A `Field` with a `hint` is taller than one without, so `items-end` (or
-`items-center`) on the row pushes every other input down by the height of a hint
-that is not theirs. That was live on the panels form for months. Use `FieldRow`,
-which flows its fields from the top; put the submit button after it, not in it.
-Filter bands built from bare controls are the exception and stay `items-end`.
+A `Field` with a `hint` is taller than one without, so `items-end` on the row
+pushes every other input down. Use `FieldRow`, which flows from the top; put the
+submit button after it, not in it.
 
-### Pill tones carry meaning
+### Statuses are text; numbers are bold when they matter
 
-`PillTone = 'neutral' | 'signal' | 'allow' | 'deny' | 'warn'`.
-
-Prefer `StatusPill` — it already maps the domain vocabulary
-(`active`→allow, `trial`→signal, `pending`/`stale`→warn,
-`suspended`/`disabled`/`expired`/`cancelled`/`rejected`→deny, `churned`→neutral).
-Reach for a raw `Pill` only for a number that means *act on this*, and follow the
-rule already in `orgs/page.tsx`: **a pill only where the number is actionable.**
-A healthy zero renders as plain muted text, not a pill.
+`StatusText` is the only status renderer. `attention` defaults on for
+`awaiting_approval` and `no_licence` (somebody must act) and off for
+`seats_exhausted` (resolves itself). A count worth acting on — awaiting members,
+attempts at five or more, days left inside 30 — is `<b>`; a healthy zero is
+`text-ink-3`. Never reach for colour to say either.
 
 ## Tables — `src/components/DataTable.tsx`
 
-One component covers list screens. Define `Column<T>[]` and pass rows; do not
-build markup.
+One card for every list: toolbar strip (search and filters left, `▽ Filter`
+disclosure, page actions right), count strip (`n {noun} · n selected`, bulk
+actions, `▥ Columns` menu), the table, pagination footer.
 
 ```tsx
 const columns: Column<OrgListRow>[] = [
   { key: 'name', header: 'Name', cell: (r) => …, csv: (r) => … },
   { key: 'contact', header: 'Contact', optional: true, cell: …, csv: … },
 ];
+<DataTable columns={columns} rows={rows} rowKey={…} noun="customers" total={data.total} … />
 ```
 
-- `csv` opts the column into the CSV export; omit it and the column is skipped.
-  Pass `csvName` to enable the export menu item at all.
-- `optional: true` starts hidden behind the columns menu (`⋯`).
-- `className` / `headClassName` — use `text-right` for numeric columns, and
-  `tabular-nums` on the value so digits align.
-- `onRowClick` is **navigation and nothing else**. No drawers: the row already
-  has a detail page. Keyboard activation (Enter/Space) is handled for you.
-- `flagRow` returns a string to draw a left warn rule and set the row title —
-  use it for "needs attention", not decoration.
-- `empty` is required and must say *what would populate the table*, not "no data".
-  Give it an `action` when the operator can create the first row.
-- `pagination={<Pagination …/>}` renders as a footer of the same card.
-  `PAGE_SIZE` is 50 and pagination is server-side.
+- `noun` and `total` drive the count strip (`3 customers`). Give every list one.
+- `csv` opts the column into Export CSV; `csvName` enables the menu item. The
+  menu button keeps `aria-label="Table options"` and `role="menu"`.
+- `optional: true` starts hidden behind `▥ Columns`.
+- `filters` is the search plus the two or three selects worth permanent space;
+  `moreFilters` goes behind `▽ Filter` with `activeFilterCount` as its badge.
+- `onRowClick` is **navigation and nothing else**, and adds the trailing chevron.
+  Clicks on a control inside the row never navigate; Enter/Space work.
+- `selectable={{ selected, onChange, actions }}` adds the checkbox column and
+  the bulk actions in the count strip. Disable them yourself at zero selected
+  (`disabled` renders at 0.4 opacity, per the reference). A bulk action runs one
+  call per row and reports partial results in one `InfoBanner`
+  ("3 approved, 1 could not: …").
+- `flagRow` returns a string that becomes the row's `title`. No coloured rule.
+- `empty` must say *what would populate the table*, and gets an `action` when
+  the operator can create the first row.
+- Loading renders `TableSkeleton`, never a spinner.
+
+Rows are 81 px (`px-4 py-5` cells, 40 px avatar); headers 16/700.
 
 ## Dialogs — `src/components/Modal.tsx`, `DangerDialog.tsx`
 
-`Modal` traps focus, restores it on close, locks body scroll and closes on
-Escape. `DangerDialog` is the destructive-confirm variant and resets its state on
-open.
+`Modal({ open, title, onClose, children, footer, wide })` — 640 px (960 wide),
+`bg-black/60` scrim, 77 px header with ✕ (`aria-label="Close"`), `p-6` body,
+`footer` band. Put the actions in `footer`, Cancel first, primary last. A form
+puts `id` on the `<form>` and `form={id}` on the footer's submit button.
 
-Two rules worth knowing because they have bitten before:
+`DangerDialog` is the destructive confirm: names the target, requires a reason
+(the first textbox), collects step-up TOTP unless `requireStepUp={false}`, and
+its confirm is the neutral `secondary` button. There is no `danger` variant.
 
-- **Reset dialog state on `open`, not on success.** Otherwise cancelling leaves
-  the draft — and any stale error — for the next time the dialog is opened.
-- Focus lands on the first focusable element. If a dialog opens with focus on the
-  header's Close button, that is this bug: the search must be scoped to the body,
-  not the whole panel.
+Two rules that have bitten before:
+
+- **Reset dialog state on `open`, not on success**, or cancelling leaves the
+  draft and its stale error for the next time.
+- Focus lands on the first focusable element **in the body**. If it lands on
+  the header's Close button, the search was scoped to the whole panel.
+
+Shared dialogs: `ApproveDialog` (role select with free-seat counts; a 409 shows
+inline and keeps it open), `RejectDialog` (no step-up), `DeleteRequestDialog`
+(step-up), `AddOrgAdminDialog` (generated password shown once), `SignOutDialog`.
+
+## Shell and personas — `AppShell.tsx`, `ScopeGuard.tsx`, `lib/session.tsx`
+
+A 56 px black bar (wordmark, `GlobalSearch`, bell with count, 44 px avatar →
+`ProfileMenu`) on a 48 px black nav row (`aria-label="Primary"`, active item is a
+`#262626` fill). Content is a 1440 px centred `<main>`. `Tabs` (48 px, 2 px black
+underline, `aria-label` defaults to `Section`) is the in-page idiom; items may
+carry `active` for tabs that live in the query string.
+
+Two personas. `useScope()` returns `{ kind: 'global' }` or
+`{ kind: 'org', orgId, orgName }`. An organisation admin sees `/org/*`
+(Overview · Members · Requests · Devices · Activity), `/profile`, and the member
+and device record pages; `ScopeGuard` bounces anything else to
+`/org?denied=<path>`, and `/` redirects to `/org`. The org section fetches the
+scoped organisation into the same `OrgProvider` the portal admin's record pages
+use, so `MembersTable`, `OrgRequestsTable`, `DevicesTable` and `AuditTable` are
+shared rather than duplicated. Public pages (sign in, enrolment, first password)
+use `PublicShell`.
 
 ## Capability-gated controls — `src/lib/permissions.ts`, `src/lib/session.tsx`
 
 ```tsx
-const canCreate = useCan('org.create');
+const canReview = useCan('member.review');
 …
-{canCreate && <Button variant="primary">Add organisation</Button>}
+{canReview && <Button variant="ghost" size="sm">Approve…</Button>}
 ```
 
-`permissions.ts` is a **deliberate mirror** of `CAPABILITY_MATRIX` in
-`packages/shared/src/index.ts` — duplicated so zod stays out of the browser
-bundle. The API enforces the same table with `requireCapability`.
+`useCan` prefers the `capabilities[]` the API returns on `/admin/auth/me` and
+falls back to the local matrix in `permissions.ts`, which is a **deliberate
+mirror** of `CAPABILITY_MATRIX` in `packages/shared/src/index.ts` (duplicated so
+zod stays out of the browser bundle). **Hide, never disable, what a role cannot
+do**, and never treat this file as the boundary — it exists so nobody is shown a
+button that will 403. If you add a capability, add it in both places;
+`tests/e2e/orgs-rbac.spec.ts` walks every role against the real routes.
 
-**Hide, never disable, what a role cannot do**, and never treat this file as the
-boundary — it exists so nobody is shown a button that will 403.
-If you add a capability, add it in *both* places, and `tests/e2e/orgs-rbac.spec.ts`
-walks every role against the real routes so the copies cannot drift silently.
-
-Portal roles are `owner | admin | support | viewer` (`ROLE_LABEL` has the display
-strings). These are **not** the org member roles — those live in the `roles`
-table, are data rather than an enum, and default to `user` (`is_default`).
+Portal roles are `owner | admin | support | viewer | org_admin` (`ROLE_LABEL` has
+the display strings; `GLOBAL_PORTAL_ROLES` is the four assignable from Portal
+users). Member capabilities are `member.review` (approve, reject, delete) and
+`member.manage` (role, disable, enable); `user.manage` stays global (create,
+rename, import). Org admins are minted from an organisation's Admins tab with
+`org_admin.manage`.
 
 ## Filters live in the URL — `src/lib/useUrlState.ts`
 
@@ -115,20 +170,22 @@ const { values, set, page, reset, activeFilterCount } = useUrlState({ q: '', sta
 ```
 
 Filter state belongs in the query string so a view can be shared and reloaded.
-Put the two or three filters worth permanent space in `filters`; put the rest in
-`moreFilters` and pass `activeFilterCount` so an active filter cannot hide inside
-a collapsed disclosure.
+In-page tabs that select a queue (`?status=rejected`, `?tab=waiting`) follow the
+same rule.
 
 ## Formatting — `src/lib/format.ts`
 
 `formatDateOnly`, `daysUntil`, and `TimeAgo` for timestamps. Use `tabular-nums`
-on anything numeric that stacks vertically.
+on anything numeric that stacks vertically. Licence dates are calendar dates in
+UTC and never go through `new Date()`.
 
 ## Checklist for a new screen
 
-1. `PageHeader` (or the `h2` + count pattern in `orgs/page.tsx`).
-2. `useUrlState` for filters, `useCan` for every mutating control.
+1. `PageHeader` (list or record), then the content.
+2. `useUrlState` for filters, `useCan` for every mutating control, `useScope`
+   when a link or breadcrumb differs by persona.
 3. One `api()` call in a `useCallback`, `useEffect` to fire it, `ErrorNote` on failure.
-4. `DataTable` with a real `empty` state and `csv` on the columns worth exporting.
-5. Dialogs via `Modal`/`DangerDialog`, resetting on open.
-6. `pnpm --filter @app/admin typecheck` before you call it done.
+4. `DataTable` with `noun`, a real `empty` state and `csv` on the columns worth exporting.
+5. Dialogs via `Modal` with `footer`, or `DangerDialog`, resetting on open.
+6. Statuses through `StatusText`; buttons that open a dialog end in `…`.
+7. `pnpm --filter @app/admin typecheck` before you call it done.

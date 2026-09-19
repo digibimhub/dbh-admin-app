@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, ApiError } from '@/lib/api';
+import { PublicShell } from '@/components/PublicShell';
 import { TotpInput } from '@/components/TotpInput';
 import { Turnstile } from '@/components/Turnstile';
 import { Button, ErrorNote, Field, TextInput } from '@/components/ui';
@@ -29,6 +30,16 @@ const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 const GENERIC_ERROR = 'That did not work. Check your email, password and current authenticator code. Repeated failures lock an account for 15 minutes.';
 const RATE_LIMITED = 'Too many sign-in attempts. Wait 15 minutes before trying again.';
 const UNREACHABLE = 'Could not reach the server. Check that the API is running, then try again.';
+
+/** What the login answers. `next` names the step still owed; `needsEnrol` is the older field. */
+type LoginResponse = { needsEnrol?: boolean; next?: 'totp-enrol' | 'password' | null };
+
+function nextStep(res: LoginResponse): string {
+  if (res.next === 'totp-enrol') return '/login/totp-enrol';
+  if (res.next === 'password') return '/login/password';
+  if (res.next === null || res.next === undefined) return res.needsEnrol ? '/login/totp-enrol' : '/';
+  return '/';
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -106,7 +117,7 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api<{ needsEnrol: boolean }>('/admin/auth/login', {
+      const res = await api<LoginResponse>('/admin/auth/login', {
         method: 'POST',
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
@@ -115,7 +126,7 @@ export default function LoginPage() {
           turnstile: turnstileToken || undefined,
         }),
       });
-      window.location.href = res.needsEnrol ? '/login/totp-enrol' : '/';
+      window.location.href = nextStep(res);
     } catch (err) {
       if (!(err instanceof ApiError)) setError(UNREACHABLE);
       else if (err.status === 429) setError(RATE_LIMITED);
@@ -141,24 +152,26 @@ export default function LoginPage() {
   const partialCode = totp.length > 0 && totp.length < 6;
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <form onSubmit={onSubmit} className="w-full max-w-md bg-card border border-rule rounded-md p-8">
-        <p className="text-micro tracking-[0.12em] uppercase text-signal font-medium mb-2">DIGIBIM HUB</p>
-        <h1 className="font-semibold text-page tracking-tight mb-1">Sign in</h1>
-        <p className="text-ink-2 text-body mb-6">Licensing administration.</p>
+    <PublicShell>
+      <form onSubmit={onSubmit} className="space-y-5">
+        <div>
+          <h1 className="text-page font-bold text-ink">Sign in</h1>
+          <p className="text-body text-ink-2 mt-2">
+            Use the account a portal admin set up for you. You will be asked for a code from your authenticator.
+          </p>
+        </div>
 
-        <Field label="Email" className="mb-4">
+        <Field label="Email">
           <TextInput
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="username"
-           
             required
           />
         </Field>
 
-        <Field label="Password" className="mb-4">
+        <Field label="Password">
           <TextInput
             type="password"
             value={password}
@@ -168,15 +181,14 @@ export default function LoginPage() {
           />
         </Field>
 
-        <div className="mb-4">
-          <p className="text-micro uppercase tracking-[0.1em] text-ink-3 mb-1">Authenticator code</p>
+        <div>
+          <p className="text-label text-ink-2 mb-1">Authenticator code</p>
           <TotpInput value={totp} onChange={onTotpChange} disabled={busy} />
           <p className="text-meta text-ink-3 mt-1.5">
-            Signing in for the first time? Leave this empty — you will be asked to set up your
-            authenticator.
+            Signing in for the first time? Leave this empty. You will be asked to set up your authenticator.
           </p>
           {hint && (
-            <p className="font-mono text-meta text-ink-3 mt-1.5">Local dev hint — current code: {hint}</p>
+            <p className="font-mono text-meta text-ink-3 mt-1.5">Local dev hint, current code: {hint}</p>
           )}
         </div>
 
@@ -184,18 +196,14 @@ export default function LoginPage() {
 
         {error && <ErrorNote>{error}</ErrorNote>}
 
-        <Button variant="primary" type="submit" disabled={busy || partialCode} className="w-full !py-2.5">
+        <Button variant="primary" type="submit" disabled={busy || partialCode} className="w-full">
           {busy ? 'Signing in…' : 'Continue'}
         </Button>
 
-        <p className="text-body text-ink-2 mt-5 border-t border-rule pt-4">
-          <b>Lost your authenticator? Contact an administrator.</b>
-          <span className="block text-ink-3 text-meta mt-1">
-            There is no self-service reset. An operator clears it for you, and you enrol a new device at your next
-            sign-in.
-          </span>
+        <p className="text-meta text-ink-3 border-t border-rule pt-4">
+          Lost your authenticator? A portal admin can reset it for you. There is no self-service reset, on purpose.
         </p>
       </form>
-    </main>
+    </PublicShell>
   );
 }

@@ -5,26 +5,35 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useParams } from 'next/navigation';
 import { api, errorMessage } from '@/lib/api';
 import { formatAbsolute, formatDateOnly, shortHash } from '@/lib/format';
-import { useCan } from '@/lib/session';
+import { useCan, useScope } from '@/lib/session';
 import {
-  SOURCE_LABEL, type Device, type OrgUser, type RoleRow, type UserDeviceRow,
+  SOURCE_LABEL, type Device, type OrgDetail, type OrgUser, type RoleRow, type UserDeviceRow,
 } from '@/lib/types';
 import { DangerDialog } from '@/components/DangerDialog';
+import { ApproveDialog } from '@/components/ApproveDialog';
+import { DeleteRequestDialog, RejectDialog } from '@/components/RejectDialog';
 import {
-  Button, ErrorNote, FormBar, FormGrid, Loading, Note, Pill, Row, Section, Select,
-  StatusPill, TextInput, TimeAgo,
+  Avatar, Button, ErrorNote, FormBar, FormGrid, InfoBanner, Loading, Note, PageHeader, Row,
+  Section, Select, StatusText, TextInput, TimeAgo,
 } from '@/components/ui';
 
 type Detail = { user: OrgUser; orgName: string; roleName: string; devices: Device[] };
 
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const canManage = useCan('user.manage');
+  const scope = useScope();
+  const canRename = useCan('user.manage');
+  const canManage = useCan('member.manage');
+  const canReview = useCan('member.review');
 
   const [data, setData] = useState<Detail | null>(null);
   const [devices, setDevices] = useState<UserDeviceRow[]>([]);
   const [roles, setRoles] = useState<RoleRow[]>([]);
+  const [org, setOrg] = useState<OrgDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [disabling, setDisabling] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -45,6 +54,9 @@ export default function UserDetailPage() {
           ? dev.rows
           : d.devices.map((device) => ({ device, lastUsage: null })));
         setError(null);
+        // Seats, for the Approve dialog. The organisation is readable by
+        // anybody who can read this member.
+        api<OrgDetail>(`/admin/orgs/${d.user.orgId}`).then(setOrg).catch(() => undefined);
       })
       .catch((e: unknown) => setError(errorMessage(e)));
   }, [id]);
@@ -58,7 +70,6 @@ export default function UserDetailPage() {
       await api(path, { method: 'POST', body: JSON.stringify(body) });
       load();
     } catch (e: unknown) {
-      // A full role and a full seat count both surface here, naming the count.
       setError(errorMessage(e));
     } finally {
       setBusy(false);
@@ -69,15 +80,13 @@ export default function UserDetailPage() {
   if (!data) return <Loading what="Loading person" />;
 
   const u = data.user;
+  const name = u.displayName ?? u.email ?? 'Person';
+  const orgHref = scope.kind === 'org' ? '/org' : `/orgs/${u.orgId}`;
+  const listHref = scope.kind === 'org' ? '/org/members' : '/users';
 
   /**
-   * The one editable field on this card.
-   *
-   * `PATCH /admin/users/:id` has existed since the route file was written and
-   * nothing ever called it, so a name typed wrong in the Add person dialog or
-   * imported from a bad CSV could not be corrected anywhere in the portal.
-   * Email is deliberately not editable: it is the global unique that ties a
-   * person to one organisation.
+   * The one editable field on this card. Email is deliberately not editable:
+   * it is the global unique that ties a person to one organisation.
    */
   async function saveName(e: FormEvent) {
     e.preventDefault();
@@ -99,57 +108,73 @@ export default function UserDetailPage() {
 
   return (
     <div>
+      <PageHeader
+        variant="record"
+        breadcrumb={scope.kind === 'org'
+          ? [{ label: 'Members', href: listHref }, { label: name }]
+          : [{ label: 'Users', href: listHref }, { label: data.orgName, href: `/orgs/${u.orgId}/people` }, { label: name }]}
+        avatar={<Avatar name={u.displayName} email={u.email} size={48} />}
+        title={name}
+        subline={(
+          <>
+            {u.email ?? 'no email on record'}
+            {' · '}<StatusText status={u.status} reason={u.pendingReason} />
+            {' · '}{data.roleName}
+          </>
+        )}
+        actions={(
+          <>
+            {canReview && (u.status === 'pending' || u.status === 'rejected') && (
+              <Button variant="primary" onClick={() => setApproving(true)}>Approve…</Button>
+            )}
+            {canReview && u.status === 'pending' && (
+              <Button onClick={() => setRejecting(true)}>Reject…</Button>
+            )}
+            {canReview && u.status === 'rejected' && (
+              <Button onClick={() => setDeleting(true)}>Delete…</Button>
+            )}
+            {canManage && u.status === 'disabled' && (
+              <Button disabled={busy} onClick={() => act(`/admin/users/${id}/enable`)}>Enable</Button>
+            )}
+            {canManage && u.status === 'active' && (
+              <Button onClick={() => setDisabling(true)}>Disable…</Button>
+            )}
+          </>
+        )}
+      />
+
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      <div className="flex flex-wrap items-start gap-3 mb-4">
-        <div className="min-w-0">
-          <p className="text-meta text-ink-3 mb-1">
-            <Link href="/users" className="text-signal hover:underline">Users</Link>
-            <span className="mx-1.5">/</span>
-            <Link href={`/orgs/${u.orgId}/people`} className="text-signal hover:underline">{data.orgName}</Link>
-          </p>
-          <h2 className="font-semibold text-page leading-tight tracking-tight flex items-center gap-2.5 flex-wrap">
-            {u.displayName ?? u.email ?? 'Person'}
-            {u.status === 'pending'
-              ? <Pill tone="warn">awaiting a seat</Pill>
-              : <StatusPill status={u.status} />}
-          </h2>
-          <p className="text-meta text-ink-3 mt-1">{u.email ?? 'no email on record'}</p>
-        </div>
-
-        {canManage && (
-          <div className="ml-auto pt-1 flex gap-2">
-            {u.status === 'pending' && (
-              <Button variant="primary" disabled={busy} onClick={() => act(`/admin/users/${id}/approve`)}>
-                Give a seat
-              </Button>
-            )}
-            {u.status === 'disabled' && (
-              <Button variant="secondary" disabled={busy} onClick={() => act(`/admin/users/${id}/enable`)}>
-                Enable
-              </Button>
-            )}
-            {u.status === 'active' && (
-              <Button variant="danger" onClick={() => setDisabling(true)}>Disable</Button>
-            )}
-          </div>
-        )}
-      </div>
-
       {u.status === 'pending' && (
-        <p className="bg-warn-soft text-warn border border-warn/30 rounded-sm px-3 py-2 mb-4 text-body">
-          There was no free <b>{data.roleName}</b> seat when they signed in. Their session is still
-          valid — give them a seat, or raise the count on the{' '}
-          <Link href={`/orgs/${u.orgId}/license`} className="underline">Licence tab</Link>, and they
-          are working at their next check without signing in again.
-        </p>
+        <InfoBanner>
+          {u.pendingReason === 'awaiting_approval' ? (
+            <>They are waiting for approval. Nobody joins {data.orgName} until an admin approves them.</>
+          ) : u.pendingReason === 'no_licence' ? (
+            <>{data.orgName} has no active licence, so they cannot get in yet. They join automatically at their next sign-in once one is issued.</>
+          ) : (
+            <>
+              There was no free <b>{data.roleName}</b> seat when they signed in. They get in automatically at their
+              next sign-in once a seat is free, or approve them now to choose a role.
+              {scope.kind === 'global' && (
+                <>{' '}Seats are raised on the <Link href={`/orgs/${u.orgId}/license`} className="text-link underline">Licence tab</Link>.</>
+              )}
+            </>
+          )}
+        </InfoBanner>
       )}
 
-      <div className="space-y-4">
+      {u.status === 'rejected' && (
+        <InfoBanner>
+          Rejected{u.reviewedAt && <> <TimeAgo value={u.reviewedAt} /></>}{u.reviewNote && <>: {u.reviewNote}</>}.
+          They see the same message each time they sign in. Approve to let them in after all.
+        </InfoBanner>
+      )}
+
+      <div className="space-y-6">
         <Section
           title="Profile"
-          actions={canManage && !editing ? (
-            <Button onClick={() => { setDraftName(u.displayName ?? ''); setEditing(true); }}>Edit</Button>
+          actions={canRename && !editing ? (
+            <Button size="sm" onClick={() => { setDraftName(u.displayName ?? ''); setEditing(true); }}>Edit</Button>
           ) : undefined}
         >
           <FormGrid onSubmit={editing ? saveName : undefined}>
@@ -163,43 +188,40 @@ export default function UserDetailPage() {
                   placeholder="Not set"
                 />
               ) : (
-                u.displayName ?? <span className="text-ink-3">not set</span>
+                u.displayName ?? <span className="text-ink-3">Not set</span>
               )}
             </Row>
             <Row label="Email">
-              {u.email
-                ? <span className="break-all">{u.email}</span>
-                : <span className="text-ink-3">—</span>}
+              {u.email ? <span className="break-all">{u.email}</span> : <span className="text-ink-3">—</span>}
             </Row>
             <Row label="Organisation">
-              <Link href={`/orgs/${u.orgId}`} className="text-signal hover:underline">{data.orgName}</Link>
+              <Link href={orgHref} className="text-link hover:underline">{data.orgName}</Link>
             </Row>
             <Row
               label="Role"
               hint="Frees a seat in the old role and takes one in the new. Applies at their next check."
             >
-              {canManage ? (
+              {canManage && (u.status === 'active' || u.status === 'disabled') ? (
                 <Select
                   value={u.roleKey}
                   disabled={busy}
                   aria-label="Role"
-                  className="!w-[180px] !py-1"
+                  className="!w-[200px] !h-8 !text-small !py-0"
                   onChange={(e) => act(`/admin/users/${id}/role`, { roleKey: e.target.value })}
                 >
                   {roles.filter((r) => r.isActive || r.key === u.roleKey).map((r) => (
                     <option key={r.key} value={r.key}>{r.name}</option>
                   ))}
                 </Select>
-              ) : <Pill tone="neutral">{data.roleName}</Pill>}
+              ) : data.roleName}
             </Row>
+            <Row label="Status"><StatusText status={u.status} reason={u.pendingReason} /></Row>
             <Row label="Source">{SOURCE_LABEL[u.source] ?? u.source}</Row>
             <Row label="Autodesk ID">
-              <span className="font-mono text-meta break-all">{u.autodeskId ?? '—'}</span>
+              <span className="font-mono text-small break-all">{u.autodeskId ?? '—'}</span>
             </Row>
             <Row label="Email verified">
-              {u.emailVerified
-                ? <Pill tone="allow">verified</Pill>
-                : <Pill tone="warn">unverified</Pill>}
+              <span className={u.emailVerified ? 'text-ink-3' : 'text-ink font-semibold'}>{u.emailVerified ? 'Verified' : 'Unverified'}</span>
             </Row>
             <Row label="First seen">
               <span title={formatAbsolute(u.firstSeenAt)}><TimeAgo value={u.firstSeenAt} /></span>
@@ -207,7 +229,7 @@ export default function UserDetailPage() {
             <Row label="Last activity"><TimeAgo value={u.lastActivityAt} /></Row>
             {editing && (
               <FormBar>
-                <Button variant="ghost" type="button" onClick={() => setEditing(false)}>Cancel</Button>
+                <Button type="button" onClick={() => setEditing(false)}>Cancel</Button>
                 <Button variant="primary" type="submit" disabled={busy}>
                   {busy ? 'Saving…' : 'Save changes'}
                 </Button>
@@ -215,35 +237,35 @@ export default function UserDetailPage() {
             )}
           </FormGrid>
           <Note>
-            Email and Autodesk ID come from Autodesk and cannot be edited — they are what tie this
-            person to one organisation. Nobody is ever deleted; disable them instead.
+            Email and Autodesk ID come from Autodesk and cannot be edited. They are what tie this
+            person to one organisation. An active member is never deleted; disable them instead.
           </Note>
         </Section>
 
         <Section title="Devices" note="Every machine this person has validated from.">
           {devices.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-body">
+            <div className="overflow-x-auto -mx-6">
+              <table className="w-full text-control text-ink">
                 <thead>
-                  <tr className="text-left border-b border-rule">
-                    {['Machine', 'Revit', 'Add-in', 'Last seen', 'Last usage', 'Status'].map((h) => (
-                      <th key={h} className="text-micro uppercase tracking-[0.1em] text-ink-3 py-1.5 pr-3">{h}</th>
+                  <tr className="text-left border-y border-ink/10">
+                    {['Machine', 'Revit', 'Add-in', 'Last seen', 'Last usage', 'Status'].map((h, i) => (
+                      <th key={h} className={`font-bold py-4 ${i === 0 ? 'px-6' : 'px-4'}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {devices.map(({ device: d, lastUsage }) => (
                     <tr key={d.id} className="border-b border-rule last:border-0">
-                      <td className="py-1.5 pr-3">
-                        <Link href={`/devices/${d.id}`} className="font-mono text-meta text-signal hover:underline">
+                      <td className="px-6 py-4">
+                        <Link href={`/devices/${d.id}`} className="font-mono text-small text-link hover:underline">
                           {d.machineName ?? shortHash(d.deviceHash)}
                         </Link>
                       </td>
-                      <td className="py-1.5 pr-3 tabular-nums text-meta">{(d.revitVersions ?? []).join(', ') || '—'}</td>
-                      <td className="py-1.5 pr-3 tabular-nums text-meta">{d.addinVersion ?? '—'}</td>
-                      <td className="py-1.5 pr-3"><TimeAgo value={d.lastSeenAt} className="tabular-nums text-meta text-ink-2" /></td>
-                      <td className="py-1.5 pr-3 tabular-nums text-meta">{lastUsage ? formatDateOnly(lastUsage) : '—'}</td>
-                      <td className="py-1.5 pr-3"><StatusPill status={d.status} /></td>
+                      <td className="px-4 py-4 tabular-nums text-ink-3">{(d.revitVersions ?? []).join(', ') || '—'}</td>
+                      <td className="px-4 py-4 tabular-nums text-ink-3">{d.addinVersion ?? '—'}</td>
+                      <td className="px-4 py-4"><TimeAgo value={d.lastSeenAt} className="text-ink-3" /></td>
+                      <td className="px-4 py-4 tabular-nums text-ink-3">{lastUsage ? formatDateOnly(lastUsage) : '—'}</td>
+                      <td className="px-4 py-4"><StatusText status={d.status} attention={d.status === 'disabled'} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -257,9 +279,29 @@ export default function UserDetailPage() {
         </Section>
       </div>
 
+      <ApproveDialog
+        open={approving}
+        target={{ ...u }}
+        roles={roles}
+        seats={org?.seats ?? []}
+        licenceActive={org ? Boolean(org.license && org.license.status === 'active') : true}
+        onClose={() => setApproving(false)}
+        onApproved={() => { setApproving(false); load(); }}
+      />
+      <RejectDialog
+        targets={rejecting ? [{ id: u.id, email: u.email, displayName: u.displayName }] : []}
+        onClose={() => setRejecting(false)}
+        onRejected={() => { setRejecting(false); load(); }}
+      />
+      <DeleteRequestDialog
+        target={deleting ? { id: u.id, email: u.email, displayName: u.displayName } : null}
+        onClose={() => setDeleting(false)}
+        onDeleted={() => { window.location.href = listHref; }}
+      />
       <DangerDialog
         open={disabling}
         title="Disable person"
+        verb="disable"
         targetKind="person"
         target={`${u.email ?? u.id} — ${data.orgName}`}
         consequence="Their next validation is denied with user_disabled and their add-in sessions are revoked, so re-enabling means signing in again. It also frees their seat, which somebody else may take."

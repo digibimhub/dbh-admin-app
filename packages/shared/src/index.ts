@@ -29,6 +29,14 @@ export const denyCode = z.enum([
    * membership is created and no seat is considered for the wrong person.
    */
   'revit_account_mismatch',
+  /**
+   * The organisation joins by approval and nobody has approved this person
+   * yet. Distinct from `pending_approval`, which shipped add-ins already read
+   * as "no usable default role" — a misconfiguration, not a queue.
+   */
+  'awaiting_approval',
+  /** An organisation admin turned this person away. Sticky until re-opened. */
+  'membership_rejected',
 ]);
 export type DenyCode = z.infer<typeof denyCode>;
 
@@ -174,7 +182,16 @@ export const addinTokenClaims = z.object({
 });
 export type AddinTokenClaims = z.infer<typeof addinTokenClaims>;
 
-export const portalRole = z.enum(['owner', 'admin', 'support', 'viewer']);
+/**
+ * The four global roles, which is what Portal users and the CLI may assign.
+ * `org_admin` is deliberately not here: it is minted only by
+ * `POST /admin/orgs/:id/portal-users`, with the role fixed and the organisation
+ * taken from the path, so no request body can ever produce an org admin with
+ * no organisation or move one between organisations.
+ */
+export const globalPortalRole = z.enum(['owner', 'admin', 'support', 'viewer']);
+export type GlobalPortalRole = z.infer<typeof globalPortalRole>;
+export const portalRole = z.enum([...globalPortalRole.options, 'org_admin']);
 export type PortalRole = z.infer<typeof portalRole>;
 
 /**
@@ -188,17 +205,32 @@ export type PortalRole = z.infer<typeof portalRole>;
  * not a permission.
  *
  * Keeping the matrix here is what stops the two sides drifting: the screen
- * hides exactly what the route would refuse.
+ * hides exactly what the route would refuse. `/admin/auth/me` also returns the
+ * caller's list, so a screen can prefer the server's answer over its mirror.
  *
- *   owner    Everything, including portal users and TOTP resets
- *   admin    Everything except portal user management
- *   support  View all, approve requests, disable devices. No licence or org changes
- *   viewer   Read only
+ *   owner      Everything, including portal users and TOTP resets
+ *   admin      Everything except portal user management
+ *   support    View all, approve requests, disable devices. No licence or org changes
+ *   viewer     Read only
+ *   org_admin  Members and join requests of ONE organisation, and nothing else.
+ *              Reads are scoped to that organisation too — the one role where
+ *              "reads are open" does not hold.
+ *
+ * `user.manage` (create a member, rename, import) stays global: members arrive
+ * through Autodesk sign-in, and an organisation admin works the queue rather
+ * than typing people in. `member.*` is what moved off `user.manage`; owner and
+ * admin hold both, so nothing changed for them.
  */
 export const CAPABILITIES = [
   'org.create', 'org.edit', 'org.suspend', 'license.manage', 'domain.manage',
   'user.manage', 'user.import', 'device.manage', 'request.review',
   'panel.manage', 'role.manage', 'portal_user.manage',
+  /** Approve, reject or delete a member's join request. */
+  'member.review',
+  /** Change a member's role, disable or re-enable them. */
+  'member.manage',
+  /** Create, deactivate or reset the authenticator of an organisation's admins. */
+  'org_admin.manage',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -208,6 +240,7 @@ const CAPABILITY_MATRIX: Record<PortalRole, readonly Capability[]> = {
   admin: CAPABILITIES.filter((c) => c !== 'portal_user.manage'),
   support: ['request.review', 'device.manage'],
   viewer: [],
+  org_admin: ['member.review', 'member.manage'],
 };
 
 export function can(role: PortalRole | undefined, capability: Capability): boolean {
@@ -215,11 +248,23 @@ export function can(role: PortalRole | undefined, capability: Capability): boole
   return CAPABILITY_MATRIX[role].includes(capability);
 }
 
+/** The full list for one role, as `/admin/auth/me` reports it. */
+export function capabilitiesFor(role: PortalRole | undefined): readonly Capability[] {
+  if (!role) return [];
+  return CAPABILITY_MATRIX[role];
+}
+
 export const orgStatus = z.enum(['active', 'suspended']);
+export const joinPolicy = z.enum(['automatic', 'approval']);
+export type JoinPolicy = z.infer<typeof joinPolicy>;
 export const licenseMode = z.enum(['internal', 'trial', 'standard']);
 export type LicenseMode = z.infer<typeof licenseMode>;
 export const licenseStatus = z.enum(['active', 'suspended', 'expired']);
-export const memberStatus = z.enum(['active', 'pending', 'disabled']);
+export const memberStatus = z.enum(['active', 'pending', 'disabled', 'rejected']);
+export type MemberStatus = z.infer<typeof memberStatus>;
+/** Why a `pending` member is waiting. Stored on the row; see `org_users.pending_reason`. */
+export const pendingReason = z.enum(['awaiting_approval', 'seats_exhausted', 'no_licence']);
+export type PendingReason = z.infer<typeof pendingReason>;
 export const memberSource = z.enum(['import', 'auto_domain', 'manual', 'approved_request']);
 export const deviceStatus = z.enum(['active', 'disabled', 'stale']);
 export const requestStatus = z.enum(['pending', 'approved', 'rejected', 'expired']);
@@ -251,8 +296,17 @@ export const createOrgSchema = z.object({
   primaryContactEmail: z.string().trim().email().optional(),
 });
 
-/** Slug is absent on purpose: it is in URLs and in the audit log. */
-export const patchOrgSchema = createOrgSchema.omit({ slug: true }).partial();
+/**
+ * Slug is absent on purpose: it is in URLs and in the audit log.
+ *
+ * `joinPolicy` is patchable here rather than through a route of its own
+ * because it is one field on the organisation with no side effect at the
+ * moment it changes: existing members are untouched, and the next sign-in
+ * reads whatever the row says.
+ */
+export const patchOrgSchema = createOrgSchema.omit({ slug: true }).partial().extend({
+  joinPolicy: joinPolicy.optional(),
+});
 
 /**
  * A domain is a hostname and nothing else. `kind`, `label`, `allowSubdomains`
@@ -331,10 +385,20 @@ export const createUserSchema = z.object({
   roleKey: roleKey.optional(),
 });
 
+/**
+ * `status` is deliberately absent. Setting it here used to bypass the seat
+ * check that approve, enable and re-enable all run, and no screen ever sent it.
+ * Status moves only through the routes that own a transition — approve,
+ * reject, disable, enable, delete — each with its own guard and audit action.
+ */
 export const patchUserSchema = z.object({
   displayName: z.string().max(120).optional(),
   roleKey: roleKey.optional(),
-  status: memberStatus.optional(),
+});
+
+/** POST /admin/users/:id/approve — optionally into a different role. */
+export const approveMemberSchema = z.object({
+  roleKey: roleKey.optional(),
 });
 
 export const approveRequestSchema = z.object({
@@ -371,8 +435,29 @@ export const patchPanelSchema = z.object({
 export const createPortalUserSchema = z.object({
   email: z.string().email(),
   displayName: z.string().max(120).optional(),
-  role: portalRole,
+  role: globalPortalRole,
   password: z.string().min(12).max(200),
+});
+
+/**
+ * POST /admin/orgs/:id/portal-users. No `role` field: the route fixes it to
+ * `org_admin` and takes the organisation from the path, which is the only way
+ * an org admin is ever created.
+ */
+export const createOrgAdminSchema = z.object({
+  email: z.string().email(),
+  displayName: z.string().max(120).optional(),
+  password: z.string().min(12).max(200),
+});
+
+/**
+ * POST /admin/auth/password. The current password is demanded even under the
+ * must-change gate: a session cookie alone must not be enough to set a new
+ * password, or a borrowed browser becomes a stolen account.
+ */
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(8).max(200),
+  newPassword: z.string().min(12).max(200),
 });
 
 export const paginationSchema = z.object({
@@ -442,9 +527,15 @@ export const setMemberRoleSchema = z.object({
   roleKey,
 });
 
+/**
+ * `role` is a global role only. The route additionally refuses any change of
+ * role for an `org_admin` target, so the scoped role can be neither entered
+ * nor left through a PATCH — an org admin's organisation is immutable, and a
+ * new account is how somebody moves.
+ */
 export const patchPortalUserSchema = z.object({
   displayName: z.string().max(120).optional(),
-  role: portalRole.optional(),
+  role: globalPortalRole.optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -464,7 +555,13 @@ export const userQuerySchema = paginationSchema.extend({
   org: z.string().uuid().optional(),
   role: roleKey.optional(),
   status: memberStatus.optional(),
+  pendingReason: pendingReason.optional(),
   source: memberSource.optional(),
+});
+
+/** GET /admin/orgs/:id/requests — the organisation's join queue, by tab. */
+export const memberRequestQuerySchema = paginationSchema.extend({
+  status: z.enum(['pending', 'rejected']).default('pending'),
 });
 
 export const deviceQuerySchema = paginationSchema.extend({

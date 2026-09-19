@@ -207,7 +207,14 @@ addinAuth.post('/exchange', async (c) => {
 
     // Re-resolve rather than trusting the result cached at callback time: an
     // operator may have approved or disabled the account in between.
-    const result = await resolveUser(identity, payload.device, dbResolveDeps(tx));
+    //
+    // `recordAttempt` is a no-op here on purpose. The callback a few seconds
+    // ago already counted this sign-in against a waiting or rejected member;
+    // counting it again would make every attempt read as two on the queue.
+    const result = await resolveUser(identity, payload.device, {
+      ...dbResolveDeps(tx),
+      recordAttempt: async () => undefined,
+    });
     if (!result.ok) return c.json(denial(result.code));
 
     await backfillIdentity(tx, result.userId, identity);

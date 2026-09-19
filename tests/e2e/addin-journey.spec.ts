@@ -192,7 +192,8 @@ test('a customer goes from nothing to a working ribbon, and the ribbon follows t
   await expect(page.getByRole('button', { name: 'Edit seats' })).toBeVisible();
 
   await atPortal(page, `/orgs/${orgId}/people`);
-  await page.getByRole('button', { name: 'Give a seat' }).click();
+  await page.getByRole('button', { name: 'Approve…' }).click();
+  await page.getByRole('dialog', { name: /^Approve / }).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(page.getByText('waiting for a seat')).toBeHidden();
 
   // This one DOES need a fresh sign-in: the first attempt was denied, so no
@@ -225,7 +226,7 @@ test('a customer goes from nothing to a working ribbon, and the ribbon follows t
   // Scoped to the Term section: the page carries an organisation Suspend as
   // well, and suspending the customer is a different act from suspending what
   // they bought.
-  await term(page).getByRole('button', { name: 'Suspend', exact: true }).click();
+  await term(page).getByRole('button', { name: 'Suspend…', exact: true }).click();
 
   const danger = page.getByRole('dialog', { name: 'Suspend licence' });
   await danger.getByRole('textbox').first().fill('e2e addin journey');

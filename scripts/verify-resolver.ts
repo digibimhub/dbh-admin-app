@@ -213,6 +213,75 @@ async function main(): Promise<void> {
         created ? `${created.status} in ${created.orgId}` : 'no row created');
       check('a pending member does not consume a seat',
         (await deps.countActiveInRole(byrne.id, defaultRole.key)) === before);
+      check('the reason is stored on the row',
+        created?.pendingReason === 'seats_exhausted' && created?.attemptCount === 1,
+        created ? `${created.pendingReason}, ${created.attemptCount} attempt(s)` : 'no row');
+    }
+
+    /**
+     * The join queue, on the organisation the seed sets to approval. A fresh
+     * person waits on a decision with no seat taken; the seeded waiter and
+     * the seeded rejection both keep hearing the same answer, and the attempt
+     * counter moves — the WHERE clauses and the CHECK constraints are what a
+     * real database adds to the unit tests here.
+     */
+    const [internal] = await tx.select().from(s.organizations)
+      .where(eq(s.organizations.slug, 'digibim-internal')).limit(1);
+    if (internal) {
+      check('the seed sets DigiBIM Internal to approval', internal.joinPolicy === 'approval');
+      const [internalDomain] = await tx.select().from(s.orgDomains)
+        .where(eq(s.orgDomains.orgId, internal.id)).limit(1);
+      const occupancy = await deps.countActiveInRole(internal.id, defaultRole.key);
+
+      const fresh = await run(
+        who({ autodeskId: 'ADSK_VERIFY_APPROVAL', email: `fresh@${internalDomain!.value}` }),
+        dev('sha256:verify-approval'),
+      );
+      check('a newcomer under approval is denied awaiting_approval',
+        !fresh.ok && fresh.code === 'awaiting_approval', fresh.ok ? 'allowed' : fresh.code);
+      const [freshRow] = await tx.select().from(s.orgUsers)
+        .where(eq(s.orgUsers.autodeskId, 'ADSK_VERIFY_APPROVAL')).limit(1);
+      check('they are a pending member with reason awaiting_approval',
+        freshRow?.status === 'pending' && freshRow?.pendingReason === 'awaiting_approval',
+        freshRow ? `${freshRow.status}/${freshRow.pendingReason}` : 'no row created');
+      check('no seat was taken',
+        (await deps.countActiveInRole(internal.id, defaultRole.key)) === occupancy);
+
+      const [newHire] = await tx.select().from(s.orgUsers)
+        .where(eq(s.orgUsers.email, 'newhire@digibimhub.com')).limit(1);
+      if (newHire) {
+        const again = await run(
+          who({ autodeskId: newHire.autodeskId!, email: newHire.email! }),
+          dev('sha256:verify-newhire'),
+        );
+        check('the seeded waiter keeps hearing awaiting_approval',
+          !again.ok && again.code === 'awaiting_approval', again.ok ? 'allowed' : again.code);
+        const [bumped] = await tx.select().from(s.orgUsers)
+          .where(eq(s.orgUsers.id, newHire.id)).limit(1);
+        check('and the attempt counter moved',
+          (bumped?.attemptCount ?? 0) === newHire.attemptCount + 1,
+          `${newHire.attemptCount} -> ${bumped?.attemptCount}`);
+      } else {
+        check('seed has newhire@digibimhub.com', false, 'reseed');
+      }
+
+      const [contractor] = await tx.select().from(s.orgUsers)
+        .where(eq(s.orgUsers.email, 'contractor@digibimhub.com')).limit(1);
+      if (contractor) {
+        const turnedAway = await run(
+          who({ autodeskId: contractor.autodeskId!, email: contractor.email! }),
+          dev('sha256:verify-contractor'),
+        );
+        check('a rejected member is denied membership_rejected',
+          !turnedAway.ok && turnedAway.code === 'membership_rejected',
+          turnedAway.ok ? 'allowed' : turnedAway.code);
+        const [still] = await tx.select().from(s.orgUsers)
+          .where(eq(s.orgUsers.id, contractor.id)).limit(1);
+        check('a rejected row keeps its status and a null reason',
+          still?.status === 'rejected' && still?.pendingReason === null);
+      } else {
+        check('seed has contractor@digibimhub.com', false, 'reseed');
+      }
     }
 
     console.log(`\n  ${passed} passed, ${failed} failed\n`);

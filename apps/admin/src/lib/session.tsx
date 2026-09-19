@@ -1,10 +1,10 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api } from './api';
 import { can, type Capability } from './permissions';
-import type { SessionUser } from './types';
+import type { SessionExtras, SessionUser } from './types';
 import { Loading } from '@/components/ui';
 
 type SessionState = {
@@ -13,6 +13,26 @@ type SessionState = {
 };
 
 const SessionContext = createContext<SessionState>({ user: null, loading: true });
+
+/**
+ * What `/admin/auth/me` answers. The scope fields were added beside `user`
+ * rather than inside it in the plan's wording, and older builds return only
+ * `user` — so both shapes are read and folded into one `SessionUser`.
+ */
+type MeResponse = { user: SessionUser } & Partial<SessionExtras>;
+
+const EXTRAS: (keyof SessionExtras)[] = [
+  'scope', 'orgId', 'orgName', 'orgStatus', 'joinPolicy', 'capabilities', 'mustChangePassword',
+];
+
+function fold(d: MeResponse): SessionUser {
+  const user: SessionUser = { ...d.user };
+  for (const k of EXTRAS) {
+    if (d[k] !== undefined) (user as Record<string, unknown>)[k] = d[k];
+  }
+  if (!user.scope) user.scope = user.role === 'org_admin' ? 'org' : 'global';
+  return user;
+}
 
 /**
  * Everything inside the provider assumes a session. Until `/admin/auth/me`
@@ -25,8 +45,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let live = true;
-    api<{ user: SessionUser }>('/admin/auth/me')
-      .then((d) => { if (live) setState({ user: d.user, loading: false }); })
+    api<MeResponse>('/admin/auth/me')
+      .then((d) => { if (live) setState({ user: fold(d), loading: false }); })
       .catch(() => { if (live) setState({ user: null, loading: false }); });
     return () => { live = false; };
   }, []);
@@ -47,13 +67,39 @@ export function useSession(): SessionState {
 /**
  * `useCan('license.manage')` — false while the session is still loading, so
  * privileged controls never flash into view before the role is known.
+ *
+ * The server's `capabilities[]` wins when present; the local matrix is the
+ * fallback for a session that predates it.
  */
 export function useCan(capability: Capability): boolean {
   const { user } = useSession();
-  return can(user?.role, capability);
+  if (!user) return false;
+  if (Array.isArray(user.capabilities)) return user.capabilities.includes(capability);
+  return can(user.role, capability);
 }
 
 /** Render children only when the role allows it. Hidden, not disabled. */
 export function Can({ do: capability, children }: { do: Capability; children: ReactNode }) {
   return useCan(capability) ? <>{children}</> : null;
+}
+
+export type Scope =
+  | { kind: 'global' }
+  | { kind: 'org'; orgId: string; orgName: string };
+
+/**
+ * Which persona is signed in. An organisation admin sees one organisation
+ * under `/org/*`; everyone else sees the whole estate.
+ */
+export function useScope(): Scope {
+  const { user } = useSession();
+  const org = Boolean(user && (user.scope === 'org' || user.role === 'org_admin') && user.orgId);
+  const orgId = user?.orgId ?? null;
+  const orgName = user?.orgName ?? null;
+  // Memoised, so effects keyed on the scope run once per session rather than
+  // once per render — the bell count is one request, not one per navigation.
+  return useMemo<Scope>(
+    () => (org && orgId ? { kind: 'org', orgId, orgName: orgName ?? 'Your organisation' } : { kind: 'global' }),
+    [org, orgId, orgName],
+  );
 }

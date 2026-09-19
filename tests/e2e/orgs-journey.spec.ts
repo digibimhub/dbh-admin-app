@@ -40,7 +40,7 @@ test('an operator can take a new customer from nothing to a working sign-in', as
   trackOrg(orgId);
 
   // Before anything else, the header says why nobody can sign in yet.
-  await expect(page.locator('dl').first()).toContainText('none');
+  await expect(page.locator('dl').first()).toContainText('None');
 
   /* ---- 2. register the domain ---- */
 

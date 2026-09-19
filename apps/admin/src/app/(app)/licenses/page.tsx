@@ -9,24 +9,21 @@ import {
   LICENSE_MODES, LICENSE_STATUSES, MODE_LABEL, type License,
 } from '@/lib/types';
 import { DataTable, PAGE_SIZE, Pagination, type Column } from '@/components/DataTable';
-import { Button, ErrorNote, Note, Pill, SEARCH_FIELD, Select, StatusPill, TextInput } from '@/components/ui';
+import {
+  Avatar, Button, ErrorNote, Note, PageHeader, SearchInput, Select, StatusText, memberStatusLabel,
+} from '@/components/ui';
 
 type Row = { license: License; orgName: string; orgSlug: string };
 
 const FILTER_DEFAULTS = { q: '', status: '', mode: '', window: '' };
 
-/**
- * A pill only where the number means "act on this". Anything further out is
- * plain text, so the two pills a row can show — status and an imminent expiry —
- * still read as exceptions rather than decoration.
- */
+/** Bold once the number is worth acting on; plain text further out. */
 function remaining(endDate: string) {
   const d = daysUntil(endDate);
   if (d === null) return <span className="text-ink-3">—</span>;
-  if (d < 0) return <Pill tone="deny">{-d}d overdue</Pill>;
-  if (d <= 7) return <Pill tone="deny">{d}d left</Pill>;
-  if (d <= 30) return <Pill tone="warn">{d}d left</Pill>;
-  return <span className="tabular-nums text-meta text-ink-3">{d}d left</span>;
+  if (d < 0) return <b className="text-ink tabular-nums">{-d} days overdue</b>;
+  if (d <= 30) return <b className="text-ink tabular-nums">{d} days</b>;
+  return <span className="tabular-nums text-ink-3">{d} days</span>;
 }
 
 export default function LicensesPage() {
@@ -69,26 +66,29 @@ export default function LicensesPage() {
     {
       key: 'org', header: 'Organisation',
       cell: (r) => (
-        <div className="min-w-0">
-          <div className="font-medium truncate">{r.orgName}</div>
-          <div className="font-mono text-micro text-ink-3 truncate">{r.orgSlug}</div>
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar name={r.orgName} />
+          <div className="min-w-0">
+            <div className="font-semibold text-ink truncate">{r.orgName}</div>
+            <div className="font-mono text-micro text-ink-3 truncate">{r.orgSlug}</div>
+          </div>
         </div>
       ),
       csv: (r) => `${r.orgName} (${r.orgSlug})`,
     },
     {
       key: 'mode', header: 'Mode',
-      cell: (r) => <span className="text-meta">{MODE_LABEL[r.license.mode]}</span>,
+      cell: (r) => MODE_LABEL[r.license.mode],
       csv: (r) => r.license.mode,
     },
     {
       key: 'status', header: 'Status',
-      cell: (r) => <StatusPill status={r.license.status} />,
+      cell: (r) => <StatusText status={r.license.status} attention={r.license.status !== 'active'} />,
       csv: (r) => r.license.status,
     },
     {
       key: 'ends', header: 'Ends',
-      cell: (r) => <span className="tabular-nums text-meta">{formatDateOnly(r.license.endDate)}</span>,
+      cell: (r) => <span className="tabular-nums">{formatDateOnly(r.license.endDate)}</span>,
       csv: (r) => r.license.endDate,
     },
     {
@@ -99,19 +99,14 @@ export default function LicensesPage() {
     {
       key: 'grace', header: 'Grace',
       optional: true,
-      cell: (r) => <span className="tabular-nums text-meta">{r.license.graceDays}d</span>,
+      cell: (r) => <span className="tabular-nums text-ink-3">{r.license.graceDays} days</span>,
       csv: (r) => String(r.license.graceDays),
     },
   ];
 
   return (
     <div>
-      <div className="mb-4">
-        <h2 className="font-semibold text-page leading-tight tracking-tight">Licences</h2>
-        <p className="text-meta text-ink-3 mt-1 tabular-nums">
-          {filtered.length} licence{filtered.length === 1 ? '' : 's'}
-        </p>
-      </div>
+      <PageHeader title="Licences" />
 
       {error && <ErrorNote>{error}</ErrorNote>}
 
@@ -121,26 +116,32 @@ export default function LicensesPage() {
         rowKey={(r) => r.license.id}
         loading={loading}
         csvName="licences"
+        noun="licences"
+        total={filtered.length}
         // This screen is the queue. Everything is edited on the organisation's
         // own Licence tab, which is where a row takes you.
         onRowClick={(r) => router.push(`/orgs/${r.license.orgId}/license`)}
         flagRow={(r) => {
           const d = daysUntil(r.license.endDate);
-          return d !== null && d <= 30 ? 'Expiring soon' : null;
+          return d !== null && d <= 30 ? 'Ending soon' : null;
         }}
         filters={(
           <>
-            <TextInput
+            <SearchInput
               placeholder="Search organisation"
               defaultValue={values.q}
-              onKeyDown={(e) => { if (e.key === 'Enter') set({ q: (e.target as HTMLInputElement).value }); }}
-              className={SEARCH_FIELD}
+              onSearch={(q) => set({ q })}
               aria-label="Search licences"
             />
             <Select value={values.status} onChange={(e) => set({ status: e.target.value })} className="!w-auto" aria-label="Filter by status">
               <option value="">Any status</option>
-              {LICENSE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {LICENSE_STATUSES.map((s) => <option key={s} value={s}>{memberStatusLabel(s)}</option>)}
             </Select>
+            {activeFilterCount > 0 && <Button variant="ghost" onClick={reset}>Clear</Button>}
+          </>
+        )}
+        moreFilters={(
+          <>
             <Select value={values.mode} onChange={(e) => set({ mode: e.target.value })} className="!w-auto" aria-label="Filter by mode">
               <option value="">Any mode</option>
               {LICENSE_MODES.map((m) => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
@@ -151,14 +152,14 @@ export default function LicensesPage() {
               <option value="30">Ends within 30 days</option>
               <option value="60">Ends within 60 days</option>
             </Select>
-            {activeFilterCount > 0 && <Button variant="ghost" onClick={reset}>Clear</Button>}
           </>
         )}
+        activeFilterCount={[values.mode, values.window].filter(Boolean).length}
         empty={{
           title: activeFilterCount ? 'No licences match these filters' : 'No licences yet',
           body: activeFilterCount
             ? 'Clear a filter to widen the search.'
-            : 'A licence is issued from an organisation’s Licence tab. Until one exists, nobody in that organisation can sign in — seats live on the licence.',
+            : 'A licence is issued from an organisation’s Licence tab. Until one exists, nobody in that organisation can sign in. Seats live on the licence.',
           action: activeFilterCount ? <Button variant="ghost" onClick={reset}>Clear filters</Button> : undefined,
         }}
         pagination={<Pagination page={page} pageSize={PAGE_SIZE} total={filtered.length} onPage={(p) => set({ page: p })} />}
