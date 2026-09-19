@@ -7,12 +7,22 @@ import { citext, textArray } from './types';
 import { organizations, portalUsers, roles } from './core';
 
 /**
- * `pending` means a seat was not available when this person signed in. They
- * exist, they are attached to the right organisation, and they are waiting on
- * an operator to free a seat or raise the count — which is why they are a row
- * here and not an access request.
+ * `pending` means this person signed in from a registered domain and could not
+ * be seated yet. They exist, they are attached to the right organisation, and
+ * `pending_reason` says what they are waiting on: an approval decision, a free
+ * seat, or a licence. That is why they are a row here and not an access
+ * request. `rejected` is sticky: the person is told so at their next sign-in
+ * and does not silently re-appear in the queue.
  */
-export const memberStatus = pgEnum('member_status', ['active', 'pending', 'disabled']);
+export const memberStatus = pgEnum('member_status', ['active', 'pending', 'disabled', 'rejected']);
+/**
+ * Stored, not derived. "Awaiting approval" is a decision recorded when the row
+ * is created under an `approval` join policy; seat counting never consults
+ * it, so occupancy stays a COUNT of active rows and nothing more.
+ */
+export const pendingReason = pgEnum('pending_reason', [
+  'awaiting_approval', 'seats_exhausted', 'no_licence',
+]);
 /** `auto_acc` is gone with tier-2 ACC resolution. */
 export const memberSource = pgEnum('member_source', [
   'import', 'auto_domain', 'manual', 'approved_request',
@@ -36,6 +46,22 @@ export const orgUsers = pgTable('org_users', {
   roleKey: text('role_key').notNull().references(() => roles.key),
   status: memberStatus('status').notNull().default('active'),
   source: memberSource('source').notNull().default('auto_domain'),
+  /** Set exactly while `status = 'pending'`; the CHECK below enforces both directions. */
+  pendingReason: pendingReason('pending_reason'),
+
+  // The review trail. `reviewed_by` is set on approve and reject alike; a
+  // rejected row must carry `reviewed_at`, so "who turned this person away and
+  // when" is never a blank. Set null on delete: the decision outlives the
+  // operator's account.
+  reviewedBy: uuid('reviewed_by').references(() => portalUsers.id, { onDelete: 'set null' }),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  reviewNote: text('review_note'),
+
+  // How often and how recently a waiting or rejected person has tried to sign
+  // in. `first_seen_at` is "requested at"; these two are bumped by the resolver
+  // each time it denies an existing pending or rejected row.
+  attemptCount: integer('attempt_count').notNull().default(0),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
 
   firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
   lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
@@ -51,6 +77,11 @@ export const orgUsers = pgTable('org_users', {
   index('idx_org_users_org_role').on(t.orgId, t.roleKey, t.status),
   index('idx_org_users_activity').on(t.orgId, sql`last_activity_at DESC NULLS LAST`),
   check('org_user_has_identity', sql`${t.autodeskId} IS NOT NULL OR ${t.email} IS NOT NULL`),
+  // Both compare `status::text` rather than the enum: `rejected` is added to
+  // the enum in the same migration, and a label added inside a transaction
+  // cannot be referenced as an enum value until that transaction commits.
+  check('org_user_pending_has_reason', sql`(${t.status}::text = 'pending') = (${t.pendingReason} IS NOT NULL)`),
+  check('org_user_rejected_reviewed', sql`${t.status}::text <> 'rejected' OR ${t.reviewedAt} IS NOT NULL`),
 ]);
 
 export const devices = pgTable('devices', {

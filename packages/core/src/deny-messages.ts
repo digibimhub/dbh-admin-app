@@ -24,6 +24,24 @@ export const DENY_MESSAGES: Record<DenyCode, { message: string; action: string }
     action: 'Your BIM manager can free a seat or raise the count at the admin portal. You do not need to sign in again.',
   },
   /**
+   * Also a wait, not a refusal: the organisation asked to approve newcomers
+   * by hand. Nothing the person can do speeds it up, so the action names who
+   * can.
+   */
+  awaiting_approval: {
+    message: 'Your organisation approves new members before they can use the add-in, and your request is waiting.',
+    action: 'Your organisation admin can approve it at the admin portal. Sign in again once they have.',
+  },
+  /**
+   * The one membership outcome that is a decision against the person. Said
+   * plainly, with the way back — an organisation admin can re-open it — and
+   * without the note the reviewer wrote, which was written for the portal.
+   */
+  membership_rejected: {
+    message: 'Your organisation admin has turned down your request to use the add-in.',
+    action: 'Ask your organisation admin if you believe this is a mistake. They can re-open the request at the admin portal.',
+  },
+  /**
    * The user can fix this one entirely by themselves, so the action says how
    * rather than pointing at an operator who has nothing to do with it.
    */

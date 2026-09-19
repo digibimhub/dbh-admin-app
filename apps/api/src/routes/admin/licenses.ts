@@ -7,7 +7,9 @@ import {
 } from '@app/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import { uuidParam } from '../../lib/params';
-import { requireStepUp, requireCapability } from '../../middleware/auth';
+import {
+  assertOrgAccess, requireStepUp, requireCapability, requireGlobal,
+} from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
 import type { DbConn } from '../../lib/db';
 
@@ -79,7 +81,9 @@ async function writeSeats(
   }
 }
 
-licenses.get('/licenses', async (c) => {
+// The estate-wide list is portal staff's. An organisation admin reads their
+// own licence through `/orgs/:id/license` below.
+licenses.get('/licenses', requireGlobal(), async (c) => {
   const status = licenseStatus.optional().parse(c.req.query('status') || undefined);
   const rows = await db
     .select({
@@ -96,6 +100,7 @@ licenses.get('/licenses', async (c) => {
 
 licenses.get('/orgs/:id/license', async (c) => {
   const id = uuidParam(c);
+  assertOrgAccess(c, id);
   const [license] = await db.select().from(s.licenses)
     .where(and(eq(s.licenses.orgId, id), eq(s.licenses.status, 'active'))).limit(1);
 
@@ -317,6 +322,13 @@ licenses.post('/licenses/:id/resume', requireCapability('license.manage'), async
 
 licenses.get('/licenses/:id/events', async (c) => {
   const id = uuidParam(c);
+  // Scoped through the licence's organisation: a foreign licence id is a 404,
+  // the same answer as a licence that does not exist.
+  const [license] = await db.select({ orgId: s.licenses.orgId }).from(s.licenses)
+    .where(eq(s.licenses.id, id)).limit(1);
+  if (!license) throw notFound();
+  assertOrgAccess(c, license.orgId);
+
   const rows = await db
     .select({ event: s.licenseEvents, actorEmail: s.portalUsers.email })
     .from(s.licenseEvents)

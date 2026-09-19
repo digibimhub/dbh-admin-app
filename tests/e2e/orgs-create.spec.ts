@@ -61,7 +61,7 @@ test.describe('add organisation', () => {
 
     // No licence means nobody can sign in yet, and the header says so loudly.
     const strip = page.locator('dl').first();
-    await expect(strip).toContainText('none');
+    await expect(strip).toContainText('None');
 
     await page.goto('/orgs');
     await expect(page.getByText(`${beforeCount + 1} customers`)).toBeVisible();

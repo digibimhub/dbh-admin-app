@@ -1,11 +1,24 @@
 import {
   pgTable, pgEnum, uuid, text, boolean, integer, smallint, bigint,
   timestamp, date, jsonb, inet, index, uniqueIndex, check, foreignKey, primaryKey,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { citext, textArray } from './types';
 
-export const portalRole = pgEnum('portal_role', ['owner', 'admin', 'support', 'viewer']);
+/**
+ * `org_admin` is the one portal role that is not global. It manages the
+ * members and join requests of exactly one organisation (`portal_users.org_id`)
+ * and is refused every other surface. Appended, never reordered: Postgres
+ * enum labels are positional history.
+ */
+export const portalRole = pgEnum('portal_role', ['owner', 'admin', 'support', 'viewer', 'org_admin']);
+/**
+ * How a new sign-in from a registered domain becomes a member. `automatic`
+ * seats them at once when a seat exists; `approval` holds every newcomer as
+ * `pending` until an organisation admin approves them, seat or no seat.
+ */
+export const joinPolicy = pgEnum('join_policy', ['automatic', 'approval']);
 /**
  * Two values, not five. `trial` is a licence mode now, and `expired` /
  * `churned` were enum values no code path could ever produce — the nightly
@@ -22,6 +35,14 @@ export const portalUsers = pgTable('portal_users', {
   displayName: text('display_name'),
   role: portalRole('role').notNull().default('viewer'),
   isActive: boolean('is_active').notNull().default(true),
+  /**
+   * The organisation an `org_admin` is scoped to, and null for every global
+   * role — the CHECK below holds both halves of that. Cascade on delete: an
+   * admin account for an organisation that no longer exists has nothing left
+   * to administer. The `AnyPgColumn` annotation breaks the type-level cycle
+   * with `organizations.created_by`, which points back at this table.
+   */
+  orgId: uuid('org_id').references((): AnyPgColumn => organizations.id, { onDelete: 'cascade' }),
 
   passwordHash: text('password_hash'),
   passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }),
@@ -45,7 +66,12 @@ export const portalUsers = pgTable('portal_users', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('idx_portal_users_active').on(t.isActive).where(sql`is_active`),
+  index('idx_portal_users_org').on(t.orgId).where(sql`org_id IS NOT NULL`),
   check('portal_user_has_password', sql`NOT ${t.isActive} OR ${t.passwordHash} IS NOT NULL`),
+  // Compared as text on purpose: a migration runs in one transaction, and a
+  // label added to an enum in that transaction cannot be used as an enum
+  // value until it commits. `::text` sidesteps that without weakening the rule.
+  check('portal_user_org_scope', sql`(${t.role}::text = 'org_admin') = (${t.orgId} IS NOT NULL)`),
   // Self-reference: who created this portal user. Declared here because a
   // column cannot reference its own table inline in Drizzle.
   foreignKey({
@@ -95,6 +121,7 @@ export const organizations = pgTable('organizations', {
   name: text('name').notNull(),
   primaryContactEmail: citext('primary_contact_email'),
   status: orgStatus('status').notNull().default('active'),
+  joinPolicy: joinPolicy('join_policy').notNull().default('automatic'),
 
   createdBy: uuid('created_by').references(() => portalUsers.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -8,10 +8,15 @@ import {
   assertRoleAssignable, assertSeatAvailable, defaultRoleKey,
 } from '../../lib/seats';
 import { uuidParam } from '../../lib/params';
-import { requireCapability } from '../../middleware/auth';
+import { requireCapability, requireGlobal } from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
 
 export const requests = new Hono();
+
+// Global access requests are people who matched NO organisation, so there is
+// nothing here that belongs to an organisation admin. Their queue is
+// `GET /admin/orgs/:id/requests`.
+requests.use('*', requireGlobal());
 
 requests.get('/', async (c) => {
   const q = requestQuerySchema.parse({

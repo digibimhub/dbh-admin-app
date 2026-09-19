@@ -25,7 +25,25 @@
  * There is no tier for ACC accounts any more. It existed to break ties when
  * several organisations claimed one email domain; `org_domains.value` is now
  * globally unique, so there are no ties.
+ *
+ * MEMBERSHIP STATES
+ * -----------------
+ *   active · pending(awaiting_approval | seats_exhausted | no_licence)
+ *   · rejected · disabled
+ *
+ * A person on a registered domain always becomes a member of that
+ * organisation at their first sign-in, whatever else is wrong: no licence,
+ * no seat, or a join policy that wants an approval first. They wait as a
+ * `pending` row the organisation admin can see. Only the truly global cases —
+ * an unverified email, a domain nobody owns, a missing default role — still
+ * land in the access-request queue, because there is no organisation to hold
+ * them.
+ *
+ * Under an `automatic` join policy a waiting member is promoted at their next
+ * sign-in as soon as a seat exists. Under `approval` nothing is automatic.
  */
+
+import type { JoinPolicy, PendingReason } from '@app/shared';
 
 export type DenyCode =
   | 'email_not_verified'
@@ -47,7 +65,15 @@ export type DenyCode =
    * because this union and the `denyCode` enum in `@app/shared` are the one
    * vocabulary, kept in step by `deny-messages.test.ts`.
    */
-  | 'revit_account_mismatch';
+  | 'revit_account_mismatch'
+  /**
+   * The organisation joins by approval and nobody has approved this person
+   * yet. Not `pending_approval`: shipped add-ins already read that one as "no
+   * usable default role", which is a misconfiguration rather than a queue.
+   */
+  | 'awaiting_approval'
+  /** An organisation admin turned this person away. Sticky until re-opened. */
+  | 'membership_rejected';
 
 /** Verified server-side during the OAuth code exchange. */
 export interface AutodeskIdentity {
@@ -71,6 +97,7 @@ export interface OrgRow {
   id: string;
   name: string;
   status: 'active' | 'suspended';
+  joinPolicy: JoinPolicy;
 }
 
 export interface LicenseRow {
@@ -87,7 +114,9 @@ export interface UserRow {
   id: string;
   orgId: string;
   roleKey: string;
-  status: 'active' | 'pending' | 'disabled';
+  status: 'active' | 'pending' | 'disabled' | 'rejected';
+  /** Set exactly while `status` is `pending`. */
+  pendingReason: PendingReason | null;
 }
 
 export interface RoleRow {
@@ -130,8 +159,24 @@ export interface ResolveDeps {
     identity: AutodeskIdentity;
     roleKey: string;
     status: 'active' | 'pending';
+    /** Required when `status` is `pending`, null when `active`. */
+    pendingReason: PendingReason | null;
     source: 'auto_domain';
   }): Promise<UserRow>;
+  /**
+   * The auto-assign rule: a waiting member becomes active at their next
+   * sign-in once a seat exists. Implementations clear the reason and write an
+   * audit row with the add-in as the actor, because nobody clicked anything.
+   */
+  activateUser(userId: string): Promise<void>;
+  /**
+   * A denied sign-in by somebody already waiting or rejected: bump the
+   * attempt counter and the timestamp so the queue can show how often and how
+   * recently they have tried. A reason refreshes `pending_reason` — a person
+   * held for a missing licence is held for a seat once the licence exists.
+   * Omitted for a rejected row, whose reason must stay null.
+   */
+  recordAttempt(userId: string, reason?: PendingReason): Promise<void>;
   upsertAccessRequest(input: {
     identity: AutodeskIdentity;
     device: DeviceInfo;
@@ -220,6 +265,15 @@ export function resolveScopes(
   return [...new Set([...granted, ...neverGated])].sort();
 }
 
+/** The deny code a waiting member hears, by what they are waiting on. */
+function denyForReason(reason: PendingReason): DenyCode {
+  switch (reason) {
+    case 'awaiting_approval': return 'awaiting_approval';
+    case 'no_licence': return 'license_missing';
+    case 'seats_exhausted': return 'seats_exhausted';
+  }
+}
+
 export async function resolveUser(
   identity: AutodeskIdentity,
   device: DeviceInfo,
@@ -260,27 +314,52 @@ export async function resolveUser(
       return { ok: false, code: 'domain_not_registered' };
     }
 
-    // Provisioning consumes a seat, and seats live on the licence — so
-    // without one there is nothing to consume and nobody to attach. Deny and
-    // record the attempt rather than creating a member row that no licence
-    // accounts for.
-    const licenseForSeat = await deps.getActiveLicense(org.id);
-    if (!licenseForSeat) {
-      await deps.upsertAccessRequest({
-        identity, device, reason: 'license_missing', emailDomain: domain,
-      });
-      return { ok: false, code: 'license_missing' };
-    }
-
+    // Checked before the licence: every member row below needs a role, and a
+    // system with no default role cannot make anybody a member at all. That
+    // is a misconfiguration, not a decision about this person, so it goes to
+    // the global queue where an operator sees it and nobody is silently
+    // granted a role the system had to guess.
     const defaultRole = await deps.getDefaultRole();
     if (!defaultRole || !defaultRole.isActive) {
-      // A misconfiguration, not a decision about this person. Route them to
-      // the approval queue so an operator sees it and nobody is silently
-      // granted a role the system had to guess.
       await deps.upsertAccessRequest({
         identity, device, reason: 'pending_approval', emailDomain: domain,
       });
       return { ok: false, code: 'pending_approval' };
+    }
+
+    // No licence means no seat to consume — but the person is still on a
+    // registered domain and belongs to a known organisation, so they become a
+    // waiting member of it rather than a global access request. The
+    // organisation admin and the organisation page can see them, and they
+    // are seated the moment a licence is issued (under `automatic`) or
+    // approved (under `approval`). The add-in still hears `license_missing`.
+    const licenseForSeat = await deps.getActiveLicense(org.id);
+    if (!licenseForSeat) {
+      await deps.createUser({
+        orgId: org.id,
+        identity,
+        roleKey: defaultRole.key,
+        status: 'pending',
+        pendingReason: 'no_licence',
+        source: 'auto_domain',
+      });
+      return { ok: false, code: 'license_missing' };
+    }
+
+    // Under `approval` nothing is automatic: no seat is taken, no session is
+    // issued, and a free seat changes nothing. The decision is recorded on
+    // the row so a later flip of the policy leaves it waiting for the
+    // approval it was told to wait for.
+    if (org.joinPolicy === 'approval') {
+      await deps.createUser({
+        orgId: org.id,
+        identity,
+        roleKey: defaultRole.key,
+        status: 'pending',
+        pendingReason: 'awaiting_approval',
+        source: 'auto_domain',
+      });
+      return { ok: false, code: 'awaiting_approval' };
     }
 
     // Fill up to the seat count, then stop. Past it the person still becomes
@@ -295,6 +374,7 @@ export async function resolveUser(
       identity,
       roleKey: defaultRole.key,
       status: hasRoom ? 'active' : 'pending',
+      pendingReason: hasRoom ? null : 'seats_exhausted',
       source: 'auto_domain',
     });
 
@@ -309,20 +389,75 @@ export async function resolveUser(
   if (!org) return { ok: false, code: 'org_suspended' };
   if (org.status === 'suspended') return { ok: false, code: 'org_suspended' };
 
+  // A waiting member denied here is still a sign-in attempt worth counting.
+  // The licence gates run before the membership gates, so somebody held for
+  // a licence keeps their attempts and their reason current even while the
+  // organisation has nothing to seat them on. An awaiting-approval row keeps
+  // its reason: that decision was recorded on purpose and a licence lapse
+  // does not unmake it.
+  const waiting = user.status === 'pending';
+  const attemptWhileUnlicensed = async () => {
+    if (!waiting) return;
+    await deps.recordAttempt(
+      user!.id,
+      user!.pendingReason === 'awaiting_approval' ? 'awaiting_approval' : 'no_licence',
+    );
+  };
+
   const license = await deps.getActiveLicense(org.id);
-  if (!license) return { ok: false, code: 'license_missing' };
-  if (license.status === 'suspended') return { ok: false, code: 'license_suspended' };
-  if (license.status !== 'active') return { ok: false, code: 'license_expired' };
+  if (!license) { await attemptWhileUnlicensed(); return { ok: false, code: 'license_missing' }; }
+  if (license.status === 'suspended') { await attemptWhileUnlicensed(); return { ok: false, code: 'license_suspended' }; }
+  if (license.status !== 'active') { await attemptWhileUnlicensed(); return { ok: false, code: 'license_expired' }; }
 
   // endDate is INCLUSIVE: a license ending today is still valid today.
   const today = deps.today();
-  if (today < license.startDate) return { ok: false, code: 'license_not_started' };
-  if (today > license.endDate) return { ok: false, code: 'license_expired' };
+  if (today < license.startDate) { await attemptWhileUnlicensed(); return { ok: false, code: 'license_not_started' }; }
+  if (today > license.endDate) { await attemptWhileUnlicensed(); return { ok: false, code: 'license_expired' }; }
 
   if (user.status === 'disabled') return { ok: false, code: 'user_disabled' };
-  // Waiting on a seat. A soft denial: the session stays valid, so the moment
-  // an operator raises the count the next check succeeds with no re-login.
-  if (user.status === 'pending') return { ok: false, code: 'seats_exhausted' };
+
+  // Sticky by design: the person was told no, and re-appearing in the queue
+  // on every launch is exactly what "reject" exists to stop. Re-opening is an
+  // explicit approve. Counted, so the Rejected tab can show they keep trying.
+  if (user.status === 'rejected') {
+    await deps.recordAttempt(user.id);
+    return { ok: false, code: 'membership_rejected' };
+  }
+
+  if (user.status === 'pending') {
+    // A pending row with no reason cannot exist under the CHECK constraint;
+    // treated as a seat wait so a bad row still resolves sensibly.
+    const reason = user.pendingReason ?? 'seats_exhausted';
+
+    // Never auto-promoted, whatever the seats say: the organisation asked
+    // for a decision and only an approve supplies one. Under `approval`
+    // policy the same holds for anybody still waiting on a seat — the policy
+    // may have been flipped after they arrived, and "automatic" is not in
+    // force any more. The licence is active by this point, so a stale
+    // `no_licence` becomes a seat wait.
+    if (reason === 'awaiting_approval' || org.joinPolicy === 'approval') {
+      const current = reason === 'awaiting_approval' ? 'awaiting_approval' : 'seats_exhausted';
+      await deps.recordAttempt(user.id, current);
+      return { ok: false, code: denyForReason(current) };
+    }
+
+    // The auto-assign rule. A seat exists now, so they take it and carry on
+    // to the grant exactly as if they had been active all along. The count
+    // and the activation are two statements, so two waiting members signing
+    // in at the same instant with one seat free can both pass the count —
+    // the same window today's first-sign-in provisioning has. At worst one
+    // role runs over-cap, which the Licence tab shows and which evicts
+    // nobody: seats gate becoming active, they never revisit a grant.
+    const seat = await deps.getSeats(license.id, user.roleKey);
+    const used = await deps.countActiveInRole(org.id, user.roleKey);
+    if (used < (seat?.seats ?? 0)) {
+      await deps.activateUser(user.id);
+      user = { ...user, status: 'active', pendingReason: null };
+    } else {
+      await deps.recordAttempt(user.id, 'seats_exhausted');
+      return { ok: false, code: 'seats_exhausted' };
+    }
+  }
 
   const dev = await deps.getDevice(org.id, device.deviceHash);
   if (dev?.status === 'disabled') return { ok: false, code: 'device_disabled' };

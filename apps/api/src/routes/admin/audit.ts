@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { and, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
 import { auditQuerySchema } from '@app/shared';
+import { orgScope, scopedOrgFilter } from '../../middleware/auth';
 
 export const audit = new Hono();
 
@@ -34,7 +35,11 @@ audit.get('/', async (c) => {
   });
 
   const filters = [];
-  if (q.org) filters.push(eq(s.auditLog.orgId, q.org));
+  // An organisation admin sees the rows stamped with their organisation and
+  // nothing else. Portal logins, TOTP events and job runs carry no org_id, so
+  // they never match — which is the point, not a gap.
+  const org = scopedOrgFilter(c, q.org);
+  if (org) filters.push(eq(s.auditLog.orgId, org));
   if (q.actor) filters.push(eq(s.auditLog.actorId, q.actor));
   if (q.action) filters.push(ilike(s.auditLog.action, `%${q.action}%`));
   if (q.from) filters.push(gte(s.auditLog.createdAt, boundary(q.from, false)));
@@ -61,8 +66,12 @@ audit.get('/', async (c) => {
 
 /** Distinct action names, so the UI can offer a filter list instead of free text. */
 audit.get('/actions', async (c) => {
+  // Distinct over the rows the caller may read, so the filter list cannot
+  // name an action that only ever happened somewhere they cannot see.
+  const scope = orgScope(c);
   const rows = await db.selectDistinct({ action: s.auditLog.action })
     .from(s.auditLog)
+    .where(scope ? eq(s.auditLog.orgId, scope) : undefined)
     .orderBy(s.auditLog.action)
     .limit(200);
   return c.json({ rows: rows.map((r) => r.action) });

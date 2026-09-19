@@ -51,17 +51,32 @@ const api = await portalApi('owner');            // APIRequestContext, cached
 const cookie = await sessionCookie('support');   // inject into a browser context
 ```
 
-Three seeded roles, all sharing `localdev-password` and the RFC 4226 test secret
+Four seeded logins, all sharing `localdev-password` and the RFC 4226 test secret
 `JBSWY3DPEHPK3PXP`:
 
 ```
-owner   admin@yourco.local
-support support@yourco.local
-viewer  viewer@yourco.local
+owner    admin@yourco.local
+support  support@yourco.local
+viewer   viewer@yourco.local
+orgAdmin orgadmin@digibimhub.com   (org_admin, scoped to DigiBIM Internal)
 ```
 
-`support@` and `viewer@` come from the seed. If they are missing, your database
-predates that seed change — reseed.
+`support@`, `viewer@` and `orgadmin@` come from the seed. If they are missing,
+your database predates that seed change — reseed.
+
+The org admin is seeded already enrolled and past the forced password change,
+so `portalApi('orgAdmin')` works like the others. DigiBIM Internal joins by
+**approval** in the seed, with `newhire@digibimhub.com` waiting and
+`contractor@digibimhub.com` rejected; `orgs-requests.spec.ts` reads those rows
+and leaves them as it found them, so a spec that mutates them should restore
+them. Acme and Byrne stay `automatic` — the add-in specs depend on Acme
+seating at once and on Byrne holding the next person on a seat
+(`eng4@byrne-structural.com` is already waiting there).
+
+The two first-login steps an org admin goes through — TOTP enrolment, then a
+forced password change — are exercised by `orgs-org-admin-login.spec.ts`
+against an admin it creates, with its own email so it spends nobody else's
+login budget.
 
 Browser specs inject the `portal_session` cookie (see `helpers/fixtures.ts`)
 rather than signing in. This works across ports because cookies are not

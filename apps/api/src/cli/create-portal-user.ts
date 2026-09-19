@@ -64,6 +64,9 @@ async function askHidden(prompt: string): Promise<string> {
   }
 }
 
+// The four GLOBAL roles, matching `globalPortalRole` in @app/shared. An
+// organisation admin is not offered here: it needs an organisation, and the
+// only route that mints one takes the organisation from its path.
 const ROLES = ['owner', 'admin', 'support', 'viewer'] as const;
 type Role = (typeof ROLES)[number];
 

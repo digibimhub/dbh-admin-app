@@ -81,6 +81,13 @@ export const DEV_OWNER_EMAIL = 'admin@yourco.local';
  */
 export const DEV_SUPPORT_EMAIL = 'support@yourco.local';
 export const DEV_VIEWER_EMAIL = 'viewer@yourco.local';
+/**
+ * The organisation admin persona, scoped to DigiBIM Internal. Same password
+ * and TOTP secret as the others, already enrolled and past the forced
+ * password change, so the E2E suite can log in as them without the two
+ * first-login steps — those are exercised by an admin the suite creates.
+ */
+export const DEV_ORG_ADMIN_EMAIL = 'orgadmin@digibimhub.com';
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const daysFromNow = (n: number) => {
@@ -178,11 +185,30 @@ async function main() {
       name: 'DigiBIM Internal',
       primaryContactEmail: 'info@digibimhub.com',
       status: 'active',
+      // The one organisation that joins by approval, so the queue and the
+      // org admin persona have something to do. Acme and Byrne stay
+      // automatic: the add-in E2E depends on Acme seating at once and on
+      // Byrne holding the next person on a seat.
+      joinPolicy: 'approval',
       createdBy: owner.id,
       createdAt: daysFromNow(-430),
     },
   ]).returning();
   if (!acme || !byrne || !internal) throw new Error('failed to insert organisations');
+
+  const [orgAdmin] = await db.insert(s.portalUsers).values({
+    email: DEV_ORG_ADMIN_EMAIL,
+    displayName: 'Internal Org Admin',
+    role: 'org_admin',
+    orgId: internal.id,
+    passwordHash,
+    passwordChangedAt: new Date(),
+    totpSecretEnc: encryptAtRest(DEV_TOTP_SECRET),
+    totpEnabled: true,
+    totpEnrolledAt: new Date(),
+    createdBy: owner.id,
+  }).returning();
+  if (!orgAdmin) throw new Error('failed to insert the organisation admin');
 
   /* ------------------------------------------------------ domains ------- */
 
@@ -286,6 +312,14 @@ async function main() {
       emailVerified: true, displayName: 'Byrne Ops', roleKey: 'admin', source: 'auto_domain',
       firstSeenAt: daysFromNow(-24), lastActivityAt: daysFromNow(0),
     },
+    {
+      // A fourth engineer who signed in against the full role. Pending does
+      // not count towards occupancy, so Byrne stays at exactly 3/3.
+      orgId: byrne.id, autodeskId: 'ADSK_BYRNE_4', email: 'eng4@byrne-structural.com',
+      emailVerified: true, displayName: 'Byrne Engineer 4', roleKey: 'user', source: 'auto_domain',
+      status: 'pending', pendingReason: 'seats_exhausted',
+      attemptCount: 3, lastAttemptAt: daysFromNow(0), firstSeenAt: daysFromNow(-2),
+    },
 
     // Internal.
     ...[1, 2].map((i): NewUser => ({
@@ -299,6 +333,23 @@ async function main() {
       firstSeenAt: daysFromNow(-400),
       lastActivityAt: daysFromNow(0),
     })),
+    {
+      // The approval queue: somebody who signed in from the registered domain
+      // and is waiting on the org admin, seat or no seat.
+      orgId: internal.id, autodeskId: 'ADSK_DBH_NEWHIRE', email: 'newhire@digibimhub.com',
+      emailVerified: true, displayName: 'New Hire', roleKey: 'user', source: 'auto_domain',
+      status: 'pending', pendingReason: 'awaiting_approval',
+      attemptCount: 7, lastAttemptAt: daysFromNow(0), firstSeenAt: daysFromNow(-3),
+    },
+    {
+      // And one who was turned away, so the Rejected tab and the sticky
+      // `membership_rejected` denial both have a row to show.
+      orgId: internal.id, autodeskId: 'ADSK_DBH_CONTRACTOR', email: 'contractor@digibimhub.com',
+      emailVerified: true, displayName: 'Outside Contractor', roleKey: 'user', source: 'auto_domain',
+      status: 'rejected', reviewedBy: owner.id, reviewedAt: daysFromNow(-1),
+      reviewNote: 'Contractor, not on the account.',
+      attemptCount: 2, lastAttemptAt: daysFromNow(-1), firstSeenAt: daysFromNow(-5),
+    },
   ];
 
   const members = await db.insert(s.orgUsers).values(people).returning();
@@ -326,18 +377,22 @@ async function main() {
 
   /* -------------------------------------------------------- report ------ */
 
-  const byrneUsers = members.filter((m) => m.orgId === byrne.id && m.roleKey === 'user').length;
+  const byrneUsers = members.filter((m) =>
+    m.orgId === byrne.id && m.roleKey === 'user' && m.status === 'active').length;
+  const waiting = members.filter((m) => m.status === 'pending').length;
 
   console.log(`
-  portal owner   ${DEV_OWNER_EMAIL} / ${DEV_PASSWORD}
-  portal support ${DEV_SUPPORT_EMAIL} / ${DEV_PASSWORD}
-  portal viewer  ${DEV_VIEWER_EMAIL} / ${DEV_PASSWORD}
-  organisations  3 (standard, trial, internal)
-  people         ${members.length} across 3 organisations
-  devices        ${machines.length}
+  portal owner     ${DEV_OWNER_EMAIL} / ${DEV_PASSWORD}
+  portal support   ${DEV_SUPPORT_EMAIL} / ${DEV_PASSWORD}
+  portal viewer    ${DEV_VIEWER_EMAIL} / ${DEV_PASSWORD}
+  org admin        ${DEV_ORG_ADMIN_EMAIL} / ${DEV_PASSWORD}  (DigiBIM Internal only)
+  organisations    3 (standard, trial, internal)
+  people           ${members.length} across 3 organisations, ${waiting} waiting, 1 rejected
+  devices          ${machines.length}
 
-  Byrne Structural is at capacity: ${byrneUsers}/3 user seats taken.
+  Byrne Structural is at capacity: ${byrneUsers}/3 user seats taken, one person waiting.
   The next person to sign in on @byrne-structural.com lands as pending.
+  DigiBIM Internal joins by approval: a sign-in on @digibimhub.com waits for the org admin.
 `);
 
   await pool.end();

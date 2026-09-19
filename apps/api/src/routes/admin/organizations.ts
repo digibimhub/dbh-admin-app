@@ -1,11 +1,19 @@
 import { Hono } from 'hono';
-import { and, asc, count, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
-import { createOrgSchema, patchOrgSchema, orgQuerySchema, reasonSchema } from '@app/shared';
+import {
+  createOrgSchema, createOrgAdminSchema, memberRequestQuerySchema, patchOrgSchema,
+  orgQuerySchema, reasonSchema,
+} from '@app/shared';
+import { hashPassword } from '@app/core';
 import { notFound, conflict } from '../../lib/errors';
 import { uuidParam } from '../../lib/params';
-import { requireStepUp, requireCapability } from '../../middleware/auth';
+import { seatUsage } from '../../lib/seats';
+import {
+  assertOrgAccess, orgScope, requireCapability, requireGlobal, requireStepUp,
+} from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
+import { SAFE_COLUMNS as PORTAL_USER_COLUMNS } from './portal-users';
 
 export const organizations = new Hono();
 
@@ -40,6 +48,30 @@ async function seatsFor(licenseId: string, orgId: string) {
   return rows.map((r) => ({ ...r, used: used.get(r.roleKey) ?? 0 }));
 }
 
+/**
+ * The join queue by reason, plus the rejected pile. One grouped query; the
+ * organisation page, the requests tab and the org admin's overview all show
+ * the same four numbers, so they come from one place.
+ */
+async function queueCounts(orgId: string) {
+  const rows = await db.select({
+    status: s.orgUsers.status,
+    reason: s.orgUsers.pendingReason,
+    n: count(),
+  }).from(s.orgUsers)
+    .where(and(eq(s.orgUsers.orgId, orgId), inArray(s.orgUsers.status, ['pending', 'rejected'])))
+    .groupBy(s.orgUsers.status, s.orgUsers.pendingReason);
+
+  const counts = { awaitingApproval: 0, seatsExhausted: 0, noLicence: 0, rejected: 0 };
+  for (const r of rows) {
+    if (r.status === 'rejected') counts.rejected += r.n;
+    else if (r.reason === 'awaiting_approval') counts.awaitingApproval += r.n;
+    else if (r.reason === 'no_licence') counts.noLicence += r.n;
+    else counts.seatsExhausted += r.n;
+  }
+  return counts;
+}
+
 organizations.get('/', async (c) => {
   const q = orgQuerySchema.parse({
     page: c.req.query('page'),
@@ -49,6 +81,10 @@ organizations.get('/', async (c) => {
   });
 
   const filters = [];
+  // An organisation admin's list is their one organisation, whatever else
+  // the query asks for. Not a 403: the list is theirs to read, it is just short.
+  const scope = orgScope(c);
+  if (scope) filters.push(eq(s.organizations.id, scope));
   if (q.q) filters.push(or(ilike(s.organizations.name, `%${q.q}%`), ilike(s.organizations.slug, `%${q.q}%`)));
   if (q.status) filters.push(eq(s.organizations.status, q.status));
   const where = filters.length ? and(...filters) : undefined;
@@ -147,6 +183,7 @@ organizations.get('/:id', async (c) => {
   const id = uuidParam(c);
   const [org] = await db.select().from(s.organizations).where(eq(s.organizations.id, id)).limit(1);
   if (!org) throw notFound('Organisation not found');
+  assertOrgAccess(c, org.id);
 
   const [license] = await db.select().from(s.licenses)
     .where(and(eq(s.licenses.orgId, id), eq(s.licenses.status, 'active'))).limit(1);
@@ -166,6 +203,7 @@ organizations.get('/:id', async (c) => {
     .orderBy(asc(s.orgDomains.value));
 
   const seats = license ? await seatsFor(license.id, id) : [];
+  const queue = await queueCounts(id);
 
   return c.json({
     org,
@@ -176,6 +214,7 @@ organizations.get('/:id', async (c) => {
       users: users?.n ?? 0,
       pending: waiting?.n ?? 0,
       devices: devices?.n ?? 0,
+      ...queue,
     },
     lastActivityAt: lastActive?.at ?? null,
   });
@@ -187,6 +226,10 @@ organizations.patch('/:id', requireCapability('org.edit'), async (c) => {
   const [before] = await db.select().from(s.organizations).where(eq(s.organizations.id, id)).limit(1);
   if (!before) throw notFound();
 
+  // `joinPolicy` rides in `body` like any other field. Flipping it changes
+  // nothing for existing rows on purpose: somebody told to wait for approval
+  // still waits, and a seat wait simply stops (or starts) promoting itself
+  // at the next sign-in. The resolver reads the row each time.
   const [row] = await db.update(s.organizations)
     .set({ ...body, updatedAt: new Date() })
     .where(eq(s.organizations.id, id))
@@ -250,4 +293,145 @@ organizations.post('/:id/reactivate', requireCapability('org.suspend'), async (c
     after: row,
   });
   return c.json({ row });
+});
+
+/* ------------------------------------------------------------ requests --- */
+
+/**
+ * GET /admin/orgs/:id/requests?status=pending|rejected&q=&page=
+ *
+ * The organisation's join queue, with everything the Approve dialog needs in
+ * the same response: the reason each person is waiting, how often and how
+ * recently they have tried, who turned the rejected ones away, the licence
+ * state and the seats per role. One call, so the dialog can say "No licence
+ * yet" or "Coordinator is full" before anybody clicks Approve and meets the
+ * 409 that would follow.
+ */
+organizations.get('/:id/requests', async (c) => {
+  const id = uuidParam(c);
+  const [org] = await db.select({ id: s.organizations.id }).from(s.organizations)
+    .where(eq(s.organizations.id, id)).limit(1);
+  if (!org) throw notFound('Organisation not found');
+  assertOrgAccess(c, org.id);
+
+  const q = memberRequestQuerySchema.parse({
+    page: c.req.query('page'),
+    pageSize: c.req.query('pageSize'),
+    q: c.req.query('q'),
+    status: c.req.query('status') || undefined,
+  });
+
+  const filters = [eq(s.orgUsers.orgId, id), eq(s.orgUsers.status, q.status)];
+  if (q.q) {
+    filters.push(or(ilike(s.orgUsers.email, `%${q.q}%`), ilike(s.orgUsers.displayName, `%${q.q}%`))!);
+  }
+  const where = and(...filters);
+
+  const reviewer = s.portalUsers;
+  const rows = await db.select({
+    user: s.orgUsers,
+    roleName: s.roles.name,
+    reviewedByEmail: reviewer.email,
+  }).from(s.orgUsers)
+    .innerJoin(s.roles, eq(s.roles.key, s.orgUsers.roleKey))
+    .leftJoin(reviewer, eq(reviewer.id, s.orgUsers.reviewedBy))
+    .where(where)
+    // Pending: whoever tried most recently is the person waiting at the door
+    // right now. Rejected: the newest decision first.
+    .orderBy(
+      q.status === 'rejected'
+        ? desc(s.orgUsers.reviewedAt)
+        : sql`${s.orgUsers.lastAttemptAt} DESC NULLS LAST`,
+      desc(s.orgUsers.firstSeenAt),
+    )
+    .limit(q.pageSize)
+    .offset((q.page - 1) * q.pageSize);
+
+  const [total] = await db.select({ n: count() }).from(s.orgUsers).where(where);
+
+  const [license] = await db.select({ endDate: s.licenses.endDate }).from(s.licenses)
+    .where(and(eq(s.licenses.orgId, id), eq(s.licenses.status, 'active'))).limit(1);
+
+  const usage = await seatUsage(db, id);
+  const seats = [...usage.entries()].map(([roleKey, u]) => ({
+    roleKey,
+    roleName: u.roleName,
+    seats: u.seats,
+    used: u.used,
+    free: Math.max(0, u.seats - u.used),
+  }));
+
+  return c.json({
+    rows,
+    total: total?.n ?? 0,
+    page: q.page,
+    pageSize: q.pageSize,
+    counts: await queueCounts(id),
+    licence: { active: Boolean(license), endDate: license?.endDate ?? null },
+    seats,
+  });
+});
+
+/* -------------------------------------------------------- org admins --- */
+
+/** GET /admin/orgs/:id/portal-users — the organisation's admin accounts. */
+organizations.get('/:id/portal-users', requireGlobal(), async (c) => {
+  const id = uuidParam(c);
+  const [org] = await db.select({ id: s.organizations.id }).from(s.organizations)
+    .where(eq(s.organizations.id, id)).limit(1);
+  if (!org) throw notFound('Organisation not found');
+
+  const rows = await db.select(PORTAL_USER_COLUMNS).from(s.portalUsers)
+    .where(eq(s.portalUsers.orgId, id))
+    .orderBy(s.portalUsers.email);
+  return c.json({ rows });
+});
+
+/**
+ * POST /admin/orgs/:id/portal-users — the only way an organisation admin is
+ * created.
+ *
+ * The role is fixed here and the organisation comes from the path, so no
+ * request body can mint an org admin with no organisation, or one for an
+ * organisation the body names. The account starts with both first-login
+ * flags set: they enrol their own authenticator, then replace the password
+ * the portal admin chose — so nobody but the admin ever holds a working
+ * credential for the account. Step-up, like every other account creation.
+ */
+organizations.post('/:id/portal-users', requireCapability('org_admin.manage'), async (c) => {
+  requireStepUp(c);
+  const id = uuidParam(c);
+  const actor = c.get('portalUser');
+  const body = createOrgAdminSchema.parse(await c.req.json());
+  const email = body.email.trim().toLowerCase();
+
+  const [org] = await db.select().from(s.organizations).where(eq(s.organizations.id, id)).limit(1);
+  if (!org) throw notFound('Organisation not found');
+
+  const [clash] = await db.select({ id: s.portalUsers.id }).from(s.portalUsers)
+    .where(eq(s.portalUsers.email, email)).limit(1);
+  if (clash) throw conflict('A portal user with that email already exists');
+
+  const [row] = await db.insert(s.portalUsers).values({
+    email,
+    displayName: body.displayName,
+    role: 'org_admin',
+    orgId: id,
+    passwordHash: await hashPassword(body.password),
+    // Not `passwordChangedAt`: this password was chosen by somebody else,
+    // and the column records when the owner last chose one.
+    mustChangePassword: true,
+    totpResetRequired: true,
+    createdBy: actor.id,
+  }).returning(PORTAL_USER_COLUMNS);
+
+  await audit(c, {
+    orgId: id,
+    action: 'portal_user.create',
+    targetType: 'portal_user',
+    targetId: row!.id,
+    after: { email: row!.email, role: row!.role, orgId: id, orgName: org.name, isActive: row!.isActive },
+  });
+
+  return c.json({ row }, 201);
 });

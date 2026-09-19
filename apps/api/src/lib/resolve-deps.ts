@@ -1,11 +1,21 @@
 import { and, count, eq, sql } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
-import type { AutodeskIdentity, DeviceInfo, ResolveDeps } from '@app/core';
+import type { AutodeskIdentity, DeviceInfo, ResolveDeps, UserRow } from '@app/core';
 import { emailDomain } from '@app/core';
 import type { DbConn } from './db';
+import { writeAudit } from '../middleware/audit';
 
 function asStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+type OrgUserRow = typeof s.orgUsers.$inferSelect;
+
+function toUserRow(row: OrgUserRow): UserRow {
+  return {
+    id: row.id, orgId: row.orgId, roleKey: row.roleKey,
+    status: row.status, pendingReason: row.pendingReason,
+  };
 }
 
 /**
@@ -18,15 +28,13 @@ export function dbResolveDeps(conn: DbConn = db): ResolveDeps {
     async findUserByAutodeskId(autodeskId) {
       const [row] = await conn.select().from(s.orgUsers)
         .where(eq(s.orgUsers.autodeskId, autodeskId)).limit(1);
-      if (!row) return null;
-      return { id: row.id, orgId: row.orgId, roleKey: row.roleKey, status: row.status };
+      return row ? toUserRow(row) : null;
     },
 
     async findUserByEmail(email) {
       const [row] = await conn.select().from(s.orgUsers)
         .where(eq(s.orgUsers.email, email)).limit(1);
-      if (!row) return null;
-      return { id: row.id, orgId: row.orgId, roleKey: row.roleKey, status: row.status };
+      return row ? toUserRow(row) : null;
     },
 
     /**
@@ -39,14 +47,14 @@ export function dbResolveDeps(conn: DbConn = db): ResolveDeps {
         .where(eq(s.orgDomains.value, domain))
         .limit(1);
       if (!row) return null;
-      return { id: row.org.id, name: row.org.name, status: row.org.status };
+      return { id: row.org.id, name: row.org.name, status: row.org.status, joinPolicy: row.org.joinPolicy };
     },
 
     async getOrg(orgId) {
       const [row] = await conn.select().from(s.organizations)
         .where(eq(s.organizations.id, orgId)).limit(1);
       if (!row) return null;
-      return { id: row.id, name: row.name, status: row.status };
+      return { id: row.id, name: row.name, status: row.status, joinPolicy: row.joinPolicy };
     },
 
     async getActiveLicense(orgId) {
@@ -116,7 +124,7 @@ export function dbResolveDeps(conn: DbConn = db): ResolveDeps {
       return rows.map((r) => r.slug);
     },
 
-    async createUser({ orgId, identity, roleKey, status, source }) {
+    async createUser({ orgId, identity, roleKey, status, pendingReason, source }) {
       const [row] = await conn.insert(s.orgUsers).values({
         orgId,
         autodeskId: identity.autodeskId,
@@ -127,9 +135,52 @@ export function dbResolveDeps(conn: DbConn = db): ResolveDeps {
         familyName: identity.familyName,
         roleKey,
         status,
+        pendingReason,
         source,
+        // A row that starts pending has already been tried once: the sign-in
+        // that created it. Counting from one keeps "attempts" honest on the
+        // queue rather than showing 0 for somebody who was just refused.
+        attemptCount: status === 'pending' ? 1 : 0,
+        lastAttemptAt: status === 'pending' ? new Date() : null,
       }).returning();
-      return { id: row!.id, orgId: row!.orgId, roleKey: row!.roleKey, status: row!.status };
+      return toUserRow(row!);
+    },
+
+    /**
+     * The auto-assign rule made durable. Audited with the add-in as actor
+     * because no operator clicked anything — the seat existed and the person
+     * signed in — and a status change with no audit row is the one that gets
+     * asked about six months later.
+     */
+    async activateUser(userId) {
+      const [before] = await conn.select().from(s.orgUsers)
+        .where(eq(s.orgUsers.id, userId)).limit(1);
+      const [after] = await conn.update(s.orgUsers)
+        .set({ status: 'active', pendingReason: null, updatedAt: new Date() })
+        .where(eq(s.orgUsers.id, userId))
+        .returning();
+      if (!after) return;
+      await writeAudit({
+        orgId: after.orgId,
+        actorType: 'addin',
+        action: 'user.auto_activate',
+        targetType: 'org_user',
+        targetId: userId,
+        before: before ? { status: before.status, pendingReason: before.pendingReason } : null,
+        after: { status: after.status, roleKey: after.roleKey },
+      }, conn);
+    },
+
+    async recordAttempt(userId, reason) {
+      await conn.update(s.orgUsers)
+        .set({
+          attemptCount: sql`${s.orgUsers.attemptCount} + 1`,
+          lastAttemptAt: new Date(),
+          // `undefined` leaves the column alone, which is what a rejected row
+          // needs: its reason must stay null under the CHECK constraint.
+          pendingReason: reason,
+        })
+        .where(eq(s.orgUsers.id, userId));
     },
 
     async upsertAccessRequest({ identity, device, reason, emailDomain: domain }) {

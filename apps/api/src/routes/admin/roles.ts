@@ -5,7 +5,7 @@ import { createRoleSchema, patchRoleSchema } from '@app/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import { requiredParam } from '../../lib/params';
 import { audit } from '../../middleware/audit';
-import { requireCapability } from '../../middleware/auth';
+import { orgScope, requireCapability } from '../../middleware/auth';
 
 export const roles = new Hono();
 
@@ -30,13 +30,15 @@ async function assertScopes(scopes: string[]): Promise<void> {
 roles.get('/', async (c) => {
   const rows = await db.select().from(s.roles).orderBy(asc(s.roles.sortOrder));
 
-  // Members per role, across every organisation. The Roles screen uses it to
-  // say what deactivating one would affect, and it is the same count the seat
-  // rules are built on.
+  // Members per role, across every organisation — or within the caller's
+  // one, for an organisation admin choosing a role for somebody. The Roles
+  // screen uses it to say what deactivating one would affect, and it is the
+  // same count the seat rules are built on.
+  const scope = orgScope(c);
   const usage = await db
     .select({ roleKey: s.orgUsers.roleKey, n: count() })
     .from(s.orgUsers)
-    .where(eq(s.orgUsers.status, 'active'))
+    .where(and(eq(s.orgUsers.status, 'active'), scope ? eq(s.orgUsers.orgId, scope) : undefined))
     .groupBy(s.orgUsers.roleKey);
   const byKey = new Map(usage.map((u) => [u.roleKey, u.n]));
 

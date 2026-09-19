@@ -4,7 +4,7 @@ import { db, schema as s } from '@app/db';
 import { deviceQuerySchema, reasonSchema, usageQuerySchema } from '@app/shared';
 import { notFound } from '../../lib/errors';
 import { uuidParam } from '../../lib/params';
-import { requireCapability } from '../../middleware/auth';
+import { assertOrgAccess, requireCapability, scopedOrgFilter } from '../../middleware/auth';
 import { audit } from '../../middleware/audit';
 
 export const devices = new Hono();
@@ -20,7 +20,8 @@ devices.get('/', async (c) => {
   });
 
   const filters = [];
-  if (q.org) filters.push(eq(s.devices.orgId, q.org));
+  const org = scopedOrgFilter(c, q.org);
+  if (org) filters.push(eq(s.devices.orgId, org));
   if (q.status) filters.push(eq(s.devices.status, q.status));
   if (q.revit) filters.push(sql`${q.revit} = ANY(${s.devices.revitVersions})`);
   if (q.q) filters.push(or(ilike(s.devices.machineName, `%${q.q}%`), ilike(s.devices.deviceHash, `%${q.q}%`)));
@@ -101,6 +102,7 @@ devices.get('/:id/usage', async (c) => {
 
   const [device] = await db.select().from(s.devices).where(eq(s.devices.id, id)).limit(1);
   if (!device) throw notFound();
+  assertOrgAccess(c, device.orgId);
 
   const daily = await db.select({
     usageDate: s.usageDaily.usageDate,

@@ -23,6 +23,10 @@ const RETRY_AFTER: Partial<Record<DenyCode, number>> = {
   seats_exhausted: 900,
   domain_not_registered: 3600,
   email_not_verified: 3600,
+  // An approval is a person reading a queue, on a human timescale.
+  awaiting_approval: 3600,
+  // A rejection is sticky; re-checking hourly would only be nagging.
+  membership_rejected: 86400,
 };
 
 export function denial(code: DenyCode): DenialBody {

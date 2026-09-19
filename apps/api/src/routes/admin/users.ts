@@ -3,7 +3,7 @@ import { and, asc, count, desc, eq, ilike, inArray, ne, or, sql } from 'drizzle-
 import { db, schema as s } from '@app/db';
 import { sha256Hex } from '@app/core';
 import {
-  createUserSchema, patchUserSchema, reasonSchema,
+  approveMemberSchema, createUserSchema, patchUserSchema, reasonSchema,
   setMemberRoleSchema, userQuerySchema,
 } from '@app/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
@@ -12,14 +12,28 @@ import {
 } from '../../lib/validation';
 import { parseCsv, toObject } from '../../lib/csv';
 import { uuidParam } from '../../lib/params';
+import { loadMember } from '../../lib/members';
 import { audit } from '../../middleware/audit';
+import { consumeRateLimit } from '../../middleware/ratelimit';
 import { env } from '../../env';
-import { requireCapability } from '../../middleware/auth';
+import {
+  assertOrgAccess, assertOrgWritable, requireCapability, requireStepUp, scopedOrgFilter,
+} from '../../middleware/auth';
 import {
   assertRoleAssignable, assertSeatAvailable, defaultRoleKey, seatUsage,
 } from '../../lib/seats';
 
 export const users = new Hono();
+
+/**
+ * Per-actor budget on the queue actions. The `/admin/*` IP limiter already
+ * applies; this one is for a script working the queue with a stolen session,
+ * and sixty decisions a minute is well past what a person reviewing requests
+ * by hand can reach.
+ */
+function limitReview(actorId: string): void {
+  consumeRateLimit('member-review', actorId, 60_000, 60);
+}
 
 
 /* ------------------------------------------------------------------ list */
@@ -32,13 +46,18 @@ users.get('/', async (c) => {
     org: c.req.query('org') || undefined,
     role: c.req.query('role') || undefined,
     status: c.req.query('status') || undefined,
+    pendingReason: c.req.query('pendingReason') || undefined,
     source: c.req.query('source') || undefined,
   });
 
   const filters = [];
-  if (q.org) filters.push(eq(s.orgUsers.orgId, q.org));
+  // Forced to the caller's organisation for an org admin; a global role gets
+  // whatever it asked for, including nothing.
+  const org = scopedOrgFilter(c, q.org);
+  if (org) filters.push(eq(s.orgUsers.orgId, org));
   if (q.role) filters.push(eq(s.orgUsers.roleKey, q.role));
   if (q.status) filters.push(eq(s.orgUsers.status, q.status));
+  if (q.pendingReason) filters.push(eq(s.orgUsers.pendingReason, q.pendingReason));
   if (q.source) filters.push(eq(s.orgUsers.source, q.source));
   if (q.q) filters.push(or(ilike(s.orgUsers.email, `%${q.q}%`), ilike(s.orgUsers.displayName, `%${q.q}%`)));
   const where = filters.length ? and(...filters) : undefined;
@@ -388,6 +407,7 @@ users.get('/:id', async (c) => {
     .innerJoin(s.roles, eq(s.roles.key, s.orgUsers.roleKey))
     .where(eq(s.orgUsers.id, id)).limit(1);
   if (!row) throw notFound();
+  assertOrgAccess(c, row.user.orgId);
 
   const devices = await db.select().from(s.devices)
     .where(eq(s.devices.orgUserId, id))
@@ -397,9 +417,7 @@ users.get('/:id', async (c) => {
 
 /** GET /admin/users/:id/devices — every workstation this person has used. */
 users.get('/:id/devices', async (c) => {
-  const id = uuidParam(c);
-  const [user] = await db.select().from(s.orgUsers).where(eq(s.orgUsers.id, id)).limit(1);
-  if (!user) throw notFound();
+  const { id } = await loadMember(c);
 
   const rows = await db.select({
     device: s.devices,
@@ -414,20 +432,25 @@ users.get('/:id/devices', async (c) => {
   return c.json({ rows, total: rows.length });
 });
 
+/**
+ * PATCH /admin/users/:id — display name and role. Global (`user.manage`).
+ *
+ * `status` is no longer accepted here: it let a PATCH make somebody active
+ * without the seat check that approve and enable run, and no screen sent it.
+ * Every status transition now has a route of its own below.
+ */
 users.patch('/:id', requireCapability('user.manage'), async (c) => {
-  const id = uuidParam(c);
+  const before = await loadMember(c);
+  const id = before.id;
   const body = patchUserSchema.parse(await c.req.json());
-  const [before] = await db.select().from(s.orgUsers).where(eq(s.orgUsers.id, id)).limit(1);
-  if (!before) throw notFound();
 
   const roleKey = body.roleKey ?? before.roleKey;
-  const becomingActive = body.status === 'active' && before.status !== 'active';
   const changingRole = body.roleKey !== undefined && body.roleKey !== before.roleKey;
 
   if (changingRole) await assertRoleAssignable(db, roleKey);
-  // Only a transition INTO an occupied state consumes a seat. Editing a
-  // display name on a member of a full role must not fail.
-  if (becomingActive || (changingRole && before.status === 'active')) {
+  // Only a role move by an ACTIVE member consumes a seat. Editing a display
+  // name on a member of a full role must not fail.
+  if (changingRole && before.status === 'active') {
     await assertSeatAvailable(db, before.orgId, roleKey, id);
   }
 
@@ -457,11 +480,11 @@ users.patch('/:id', requireCapability('user.manage'), async (c) => {
  * The move frees the old role's seat and takes one in the new role in this
  * single statement, because occupancy is counted rather than stored.
  */
-users.post('/:id/role', requireCapability('user.manage'), async (c) => {
-  const id = uuidParam(c);
+users.post('/:id/role', requireCapability('member.manage'), async (c) => {
+  const before = await loadMember(c);
+  const id = before.id;
+  assertOrgWritable(c);
   const body = setMemberRoleSchema.parse(await c.req.json());
-  const [before] = await db.select().from(s.orgUsers).where(eq(s.orgUsers.id, id)).limit(1);
-  if (!before) throw notFound();
 
   await assertRoleAssignable(db, body.roleKey);
   if (before.status === 'active' && body.roleKey !== before.roleKey) {
@@ -487,20 +510,29 @@ users.post('/:id/role', requireCapability('user.manage'), async (c) => {
 });
 
 /**
- * POST /admin/users/:id/approve — give a waiting person a seat.
+ * POST /admin/users/:id/approve — seat a waiting person, or re-open a
+ * rejected one.
  *
- * The counterpart to `seats_exhausted`. Optionally moves them to a different
- * role at the same time, which is how an operator resolves "the User seats are
- * full but there is room in Coordinator".
+ * The counterpart to every pending reason at once: a seat wait, a licence
+ * wait and an approval wait all end here. Optionally moves them to a
+ * different role at the same time, which is how an operator resolves "the
+ * User seats are full but there is room in Coordinator". Needs a licence and
+ * a seat like any other assignment; the 409 names what is missing, and the
+ * requests response already carries enough for the dialog to say so first.
+ *
+ * Accepting `rejected` is deliberate: a rejection is sticky so the person
+ * stops re-appearing, and this is the one way back.
  */
-users.post('/:id/approve', requireCapability('user.manage'), async (c) => {
-  const id = uuidParam(c);
-  const body = setMemberRoleSchema.partial().parse(await c.req.json().catch(() => ({})));
+users.post('/:id/approve', requireCapability('member.review'), async (c) => {
+  const before = await loadMember(c);
+  const id = before.id;
+  assertOrgWritable(c);
+  const actor = c.get('portalUser');
+  limitReview(actor.id);
+  const body = approveMemberSchema.parse(await c.req.json().catch(() => ({})));
 
-  const [before] = await db.select().from(s.orgUsers).where(eq(s.orgUsers.id, id)).limit(1);
-  if (!before) throw notFound();
-  if (before.status !== 'pending') {
-    throw badRequest(`This person is ${before.status}, not waiting for a seat.`);
+  if (before.status !== 'pending' && before.status !== 'rejected') {
+    throw badRequest(`This person is ${before.status}, not waiting to be approved.`);
   }
 
   const roleKey = body.roleKey ?? before.roleKey;
@@ -508,7 +540,15 @@ users.post('/:id/approve', requireCapability('user.manage'), async (c) => {
   await assertSeatAvailable(db, before.orgId, roleKey, id);
 
   const [row] = await db.update(s.orgUsers)
-    .set({ status: 'active', roleKey, updatedAt: new Date() })
+    .set({
+      status: 'active',
+      roleKey,
+      pendingReason: null,
+      reviewedBy: actor.id,
+      reviewedAt: new Date(),
+      reviewNote: null,
+      updatedAt: new Date(),
+    })
     .where(eq(s.orgUsers.id, id))
     .returning();
 
@@ -525,18 +565,106 @@ users.post('/:id/approve', requireCapability('user.manage'), async (c) => {
   return c.json({ row });
 });
 
-users.post('/:id/disable', requireCapability('user.manage'), async (c) => {
-  const id = uuidParam(c);
+/**
+ * POST /admin/users/:id/reject — turn a waiting person away, durably.
+ *
+ * Persisted rather than deleted so the answer sticks: at their next sign-in
+ * the add-in says `membership_rejected` and the queue does not grow a fresh
+ * row for somebody who was already told no. The note is kept on the row and
+ * shown on the Rejected tab; approve re-opens it. Nothing is rotated or
+ * revoked because a pending member never had a session to lose.
+ */
+users.post('/:id/reject', requireCapability('member.review'), async (c) => {
+  const before = await loadMember(c);
+  const id = before.id;
+  assertOrgWritable(c);
+  const actor = c.get('portalUser');
+  limitReview(actor.id);
+  const { reason } = reasonSchema.parse(await c.req.json());
+
+  if (before.status !== 'pending') {
+    throw badRequest(`This person is ${before.status}, not waiting. Disable them instead.`);
+  }
+
+  const [row] = await db.update(s.orgUsers)
+    .set({
+      status: 'rejected',
+      pendingReason: null,
+      reviewedBy: actor.id,
+      reviewedAt: new Date(),
+      reviewNote: reason,
+      updatedAt: new Date(),
+    })
+    .where(eq(s.orgUsers.id, id))
+    .returning();
+
+  await audit(c, {
+    orgId: before.orgId,
+    action: 'user.reject',
+    targetType: 'org_user',
+    targetId: id,
+    before,
+    after: row,
+  });
+  return c.json({ row });
+});
+
+/**
+ * DELETE /admin/users/:id — forget a request that never became a membership.
+ *
+ * The documented difference from reject: the record goes, so the same person
+ * signing in again starts a brand-new request with a new id. Only for rows
+ * that were never active — nothing to cascade, no history worth keeping —
+ * which is checked three ways because "never active" is an invariant the
+ * status alone does not prove. Step-up, because it is the one member action
+ * that cannot be undone from the portal.
+ */
+users.delete('/:id', requireCapability('member.review'), async (c) => {
+  requireStepUp(c);
+  const before = await loadMember(c);
+  const id = before.id;
+  assertOrgWritable(c);
+  const actor = c.get('portalUser');
+  limitReview(actor.id);
+  const { reason } = reasonSchema.parse(await c.req.json().catch(() => ({})));
+
+  const [sessions] = await db.select({ n: count() }).from(s.addinSessions)
+    .where(eq(s.addinSessions.orgUserId, id));
+  const neverActive = (before.status === 'pending' || before.status === 'rejected')
+    && before.lastActivityAt === null
+    && (sessions?.n ?? 0) === 0;
+  if (!neverActive) {
+    throw conflict('This person has used the add-in, so their record is history. Disable them instead.');
+  }
+
+  await db.delete(s.orgUsers).where(eq(s.orgUsers.id, id));
+
+  await audit(c, {
+    orgId: before.orgId,
+    action: 'user.delete',
+    targetType: 'org_user',
+    targetId: id,
+    // The whole row: after this the audit log is the only place it exists.
+    before,
+    after: { reason },
+  });
+  return c.json({ ok: true });
+});
+
+users.post('/:id/disable', requireCapability('member.manage'), async (c) => {
+  const before = await loadMember(c);
+  const id = before.id;
+  assertOrgWritable(c);
   // A reason is required: it lands in audit_log, and a disable with no
   // recorded reason is the row nobody can explain six months later.
   const { reason } = reasonSchema.parse(await c.req.json());
 
-  const [before] = await db.select().from(s.orgUsers).where(eq(s.orgUsers.id, id)).limit(1);
-  if (!before) throw notFound();
-
   const row = await db.transaction(async (tx) => {
     const [updated] = await tx.update(s.orgUsers).set({
       status: 'disabled',
+      // A pending row loses its reason on the way out: it is not waiting any
+      // more, and the CHECK constraint holds that both ways.
+      pendingReason: null,
       updatedAt: new Date(),
     }).where(eq(s.orgUsers.id, id)).returning();
 
@@ -565,16 +693,17 @@ users.post('/:id/disable', requireCapability('user.manage'), async (c) => {
  * Re-enabling consumes a seat, so it can fail where disabling never does. The
  * seat they vacated may well have been taken while they were disabled.
  */
-users.post('/:id/enable', requireCapability('user.manage'), async (c) => {
-  const id = uuidParam(c);
-  const [before] = await db.select().from(s.orgUsers).where(eq(s.orgUsers.id, id)).limit(1);
-  if (!before) throw notFound();
+users.post('/:id/enable', requireCapability('member.manage'), async (c) => {
+  const before = await loadMember(c);
+  const id = before.id;
+  assertOrgWritable(c);
 
   await assertRoleAssignable(db, before.roleKey);
   await assertSeatAvailable(db, before.orgId, before.roleKey, id);
 
   const [row] = await db.update(s.orgUsers).set({
     status: 'active',
+    pendingReason: null,
     updatedAt: new Date(),
   }).where(eq(s.orgUsers.id, id)).returning();
 

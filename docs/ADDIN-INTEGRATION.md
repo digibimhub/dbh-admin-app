@@ -114,13 +114,16 @@ renewed licence lets the next check succeed without a fresh sign-in.
 | `invalid_token` | Session revoked/expired/unknown | **Yes** |
 | `revit_account_mismatch` | The browser signed in as a different Autodesk account than Revit is using | **Yes** — with the browser on Revit's account. No seat was used. |
 | `pending_approval` | No usable default role, or the role was retired; waiting for an operator | No |
-| `seats_exhausted` | Role's seats are full; the person is a pending member and one may free up | No |
+| `seats_exhausted` | Role's seats are full; the person is a pending member and gets in by themselves at the next check once a seat exists (`automatic` policy) or when approved | No |
+| `awaiting_approval` | The organisation approves newcomers by hand; the person is a pending member until an organisation admin approves them. A free seat does not shorten the wait. Retry 3600 s | No |
+| `membership_rejected` | An organisation admin turned this person away. Sticky: the same answer at every sign-in until an admin re-opens it. Retry 86400 s | No |
 | `domain_not_registered` | Email domain matches no organisation | No |
 | `email_not_verified` | Autodesk account email unverified | No |
 | `user_disabled` | Operator disabled this person (their sessions are revoked too) | Yes, once re-enabled |
 | `device_disabled` | Operator disabled this workstation | No |
 | `org_suspended` | The organisation is suspended | No |
-| `license_missing` / `license_suspended` / `license_expired` / `license_not_started` | The organisation's licence, by state; end date is inclusive | No |
+| `license_missing` | The organisation has no active licence. On a registered domain you are now a **waiting member** of that organisation (not a global request): sign in again once a licence is issued and you are seated automatically, or approved if the organisation joins by approval | No |
+| `license_suspended` / `license_expired` / `license_not_started` | The organisation's licence, by state; end date is inclusive | No |
 | `offline_grace_exceeded` | Too long since a successful check | No — reconnect |
 
 ## Using the access token

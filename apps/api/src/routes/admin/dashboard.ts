@@ -1,8 +1,13 @@
 import { Hono } from 'hono';
 import { and, count, eq, sql } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
+import { requireGlobal } from '../../middleware/auth';
 
 export const dashboard = new Hono();
+
+// Estate-wide numbers. An organisation admin's overview is built from
+// `GET /admin/orgs/:id` instead, so there is nothing here that is theirs.
+dashboard.use('*', requireGlobal());
 
 /**
  * Counted live, not read from a rollup.

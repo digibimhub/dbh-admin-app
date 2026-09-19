@@ -3,10 +3,12 @@ import { setCookie, deleteCookie } from 'hono/cookie';
 import { eq, sql } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
 import {
-  currentTotp, DEV_TOTP_SECRET, dummyPasswordVerify, generateTotpSecret,
+  currentTotp, DEV_TOTP_SECRET, dummyPasswordVerify, generateTotpSecret, hashPassword,
   signPortalJwt, totpUri, verifyPassword, verifyTotp, verifyTotpWithReplay,
 } from '@app/core';
-import { portalLoginSchema, totpConfirmSchema } from '@app/shared';
+import {
+  capabilitiesFor, changePasswordSchema, portalLoginSchema, totpConfirmSchema,
+} from '@app/shared';
 import { env, limits } from '../../env';
 import { invalidCredentials, unauthorized, badRequest } from '../../lib/errors';
 import { audit } from '../../middleware/audit';
@@ -52,6 +54,8 @@ function publicUser(u: PortalUserRow) {
     email: u.email,
     displayName: u.displayName,
     role: u.role,
+    orgId: u.orgId,
+    mustChangePassword: u.mustChangePassword,
     totpEnabled: u.totpEnabled,
     totpResetRequired: u.totpResetRequired,
     totpEnrolledAt: u.totpEnrolledAt,
@@ -59,6 +63,17 @@ function publicUser(u: PortalUserRow) {
     lastLoginIp: u.lastLoginIp,
     createdAt: u.createdAt,
   };
+}
+
+/**
+ * Where the portal should send somebody after a successful login or
+ * enrolment. Enrolment comes first because a password change is a session
+ * action and the session does not exist until the second factor is proven.
+ */
+function nextStep(u: PortalUserRow): 'totp-enrol' | 'password' | null {
+  if (!u.totpEnabled || u.totpResetRequired) return 'totp-enrol';
+  if (u.mustChangePassword) return 'password';
+  return null;
 }
 
 adminAuth.get('/dev-hint', async (c) => {
@@ -161,7 +176,9 @@ adminAuth.post('/login', async (c) => {
     after: { needsEnrol },
   });
 
-  return c.json({ user: publicUser(user), needsEnrol, token });
+  // `needsEnrol` stays for the login page that reads it; `next` is the
+  // superset, adding the forced password change that follows enrolment.
+  return c.json({ user: publicUser(user), needsEnrol, next: nextStep(user), token });
 });
 
 /**
@@ -193,7 +210,85 @@ adminAuth.post('/logout', async (c) => {
   return c.json({ ok: true });
 });
 
-adminAuth.get('/me', async (c) => c.json({ user: publicUser(c.get('portalUser')) }));
+/**
+ * Who am I, and what may I touch.
+ *
+ * `capabilities` is server-provided so the portal can prefer it over its
+ * mirrored matrix, and the org fields are what an organisation admin's shell
+ * is built from: which organisation, whether it is suspended (read-only), and
+ * how it joins. Global roles get `scope: 'global'` and nulls.
+ */
+adminAuth.get('/me', async (c) => {
+  const user = c.get('portalUser');
+  const org = c.get('scopedOrg');
+  return c.json({
+    user: publicUser(user),
+    scope: org ? 'org' : 'global',
+    orgId: org?.id ?? null,
+    orgName: org?.name ?? null,
+    orgStatus: org?.status ?? null,
+    joinPolicy: org?.joinPolicy ?? null,
+    capabilities: capabilitiesFor(user.role),
+    mustChangePassword: user.mustChangePassword,
+  });
+});
+
+/**
+ * POST /admin/auth/password — replace the password with one only its owner
+ * knows.
+ *
+ * Reachable under the must-change gate, which is its main reason to exist:
+ * an organisation admin's first password was typed by a portal admin, and
+ * until it is replaced that person could sign in as them. The current
+ * password is still demanded so a session cookie alone cannot rotate it.
+ *
+ * The epoch bump signs out every other session for this account — the right
+ * thing after a credential change — and the cookie is re-issued with the new
+ * epoch so the caller is the one session that stays. Rate limited per user:
+ * argon2 is deliberately slow, and this route runs it twice.
+ */
+adminAuth.post('/password', async (c) => {
+  const user = c.get('portalUser');
+  const claims = c.get('portalClaims');
+  const body = changePasswordSchema.parse(await c.req.json());
+  consumeRateLimit('password-change', user.id, 15 * 60 * 1000, 10);
+
+  if (!user.passwordHash || !await verifyPassword(user.passwordHash, body.currentPassword)) {
+    throw invalidCredentials();
+  }
+  if (await verifyPassword(user.passwordHash, body.newPassword)) {
+    throw badRequest('Choose a password you have not used before', { newPassword: 'same as the current password' });
+  }
+
+  const epoch = user.sessionEpoch + 1;
+  await db.update(s.portalUsers).set({
+    passwordHash: await hashPassword(body.newPassword),
+    passwordChangedAt: new Date(),
+    mustChangePassword: false,
+    sessionEpoch: epoch,
+    updatedAt: new Date(),
+  }).where(eq(s.portalUsers.id, user.id));
+
+  const token = await signPortalJwt({
+    sub: user.id,
+    role: user.role,
+    epoch,
+    typ: 'session',
+    // A step-up proved earlier in this session is still that person's proof.
+    last_reauth_at: claims.last_reauth_at,
+  });
+  setCookie(c, env.cookieName, token, COOKIE_OPTS);
+
+  await audit(c, {
+    action: 'portal.password_change',
+    targetType: 'portal_user',
+    targetId: user.id,
+    before: { mustChangePassword: user.mustChangePassword },
+    after: { mustChangePassword: false, otherSessionsRevoked: true },
+  });
+
+  return c.json({ ok: true, token });
+});
 
 adminAuth.post('/totp/enrol', async (c) => {
   const user = c.get('portalUser');
@@ -258,7 +353,9 @@ adminAuth.post('/totp/confirm', async (c) => {
     after: { totpEnabled: true },
   });
 
-  return c.json({ ok: true, token });
+  // Enrolment is done, so the only step that can still be owed is the
+  // password change; the enrol page reads this to know where to go.
+  return c.json({ ok: true, token, next: user.mustChangePassword ? 'password' : null });
 });
 
 /**

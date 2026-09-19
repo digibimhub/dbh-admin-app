@@ -27,8 +27,8 @@ test.describe('organisations list', () => {
     // Byrne is the trial that is deliberately at capacity: 4 people, 6 seats.
     const byrne = page.getByRole('row', { name: /Byrne Structural/ });
     await expect(byrne).toContainText('4 / 6');
-    // Its licence is inside 30 days, so the date is replaced by a warn pill.
-    await expect(byrne).toContainText(/\dd left/);
+    // Its licence is inside 30 days, so the date carries the days remaining.
+    await expect(byrne).toContainText(/\d+ days/);
 
     // Acme's is far out, so it stays a plain date rather than shouting.
     await expect(page.getByRole('row', { name: /Acme Engineering/ })).toContainText(/\d{4}/);

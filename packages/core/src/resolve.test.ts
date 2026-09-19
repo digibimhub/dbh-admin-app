@@ -8,7 +8,8 @@ import {
 
 /* ---------------- fixtures ---------------- */
 
-const ORG_A: OrgRow = { id: 'org-a', name: 'Acme Engineering', status: 'active' };
+const ORG_A: OrgRow = { id: 'org-a', name: 'Acme Engineering', status: 'active', joinPolicy: 'automatic' };
+const ORG_APPROVAL: OrgRow = { ...ORG_A, joinPolicy: 'approval' };
 
 const LICENSE: LicenseRow = {
   id: 'lic-a', orgId: 'org-a', mode: 'standard', status: 'active',
@@ -54,6 +55,8 @@ type CapturedCreate = Parameters<ResolveDeps['createUser']>[0];
 function deps(o: Overrides = {}) {
   const requests: CapturedRequest[] = [];
   const created: CapturedCreate[] = [];
+  const activated: string[] = [];
+  const attempts: { userId: string; reason: string | undefined }[] = [];
   const roles = o.roles ?? { user: ROLE_USER, admin: ROLE_ADMIN };
   const d: ResolveDeps = {
     findUserByAutodeskId: async () => o.user ?? null,
@@ -69,17 +72,29 @@ function deps(o: Overrides = {}) {
     neverGatedScopes: async () => o.neverGated ?? ['general'],
     createUser: async (input) => {
       created.push(input);
-      return { id: 'new-user', orgId: input.orgId, roleKey: input.roleKey, status: input.status };
+      return {
+        id: 'new-user', orgId: input.orgId, roleKey: input.roleKey,
+        status: input.status, pendingReason: input.pendingReason,
+      };
     },
+    activateUser: async (id) => { activated.push(id); },
+    recordAttempt: async (userId, reason) => { attempts.push({ userId, reason }); },
     upsertAccessRequest: async (r) => { requests.push(r); },
     today: () => o.today ?? '2026-06-15',
   };
-  return { d, requests, created };
+  return { d, requests, created, activated, attempts };
 }
 
 const member = (p: Partial<UserRow> = {}): UserRow => ({
-  id: 'u1', orgId: 'org-a', roleKey: 'user', status: 'active', ...p,
+  id: 'u1', orgId: 'org-a', roleKey: 'user', status: 'active', pendingReason: null, ...p,
 });
+
+/** A member held on a seat, the way the resolver itself would have written them. */
+const waitingForSeat = (p: Partial<UserRow> = {}): UserRow =>
+  member({ status: 'pending', pendingReason: 'seats_exhausted', ...p });
+
+/** One `user` seat, already taken: the role is full. */
+const FULL: Record<string, SeatRow> = { user: { seats: 1, scopes: null } };
 
 /** Ten seats for `user`, ten for `admin`, unless a test says otherwise. */
 const ROOMY: Record<string, SeatRow> = {
@@ -182,12 +197,21 @@ describe('resolution order', () => {
     assert.equal(created[0]?.status, 'active');
   });
 
-  test('no active licence means no seat to consume, so nobody is provisioned', async () => {
+  /**
+   * Changed with the join queue. A registered domain with no licence used to
+   * become a global access request, which the organisation could not see. The
+   * person now waits as a member of the right organisation, so the org admin
+   * and the org page show them and they are seated the moment a licence lands.
+   */
+  test('no active licence makes them a waiting member of the org, not a global request', async () => {
     const { d, created, requests } = deps({ license: null });
     const r = await resolveUser(IDENTITY, DEVICE, d);
     assert.deepEqual(r, { ok: false, code: 'license_missing' });
-    assert.equal(created.length, 0, 'must not create a member no licence accounts for');
-    assert.equal(requests[0]?.reason, 'license_missing');
+    assert.equal(created.length, 1);
+    assert.equal(created[0]?.orgId, 'org-a');
+    assert.equal(created[0]?.status, 'pending');
+    assert.equal(created[0]?.pendingReason, 'no_licence');
+    assert.equal(requests.length, 0, 'the organisation is known, so nothing goes to the global queue');
   });
 
   test('a missing default role is a misconfiguration, not a rejection', async () => {
@@ -221,8 +245,15 @@ describe('seats', () => {
     assert.deepEqual(r, { ok: false, code: 'seats_exhausted' });
     // Still a member of the right org with the right role — just waiting.
     assert.equal(created[0]?.status, 'pending');
+    assert.equal(created[0]?.pendingReason, 'seats_exhausted');
     assert.equal(created[0]?.orgId, 'org-a');
     assert.equal(created[0]?.roleKey, 'user');
+  });
+
+  test('a seated member is written with no pending reason', async () => {
+    const { d, created } = deps({ seats: ROOMY });
+    assert.equal((await resolveUser(IDENTITY, DEVICE, d)).ok, true);
+    assert.equal(created[0]?.pendingReason, null);
   });
 
   test('no seat row at all means zero seats, not unlimited', async () => {
@@ -232,11 +263,16 @@ describe('seats', () => {
     assert.equal(created[0]?.status, 'pending');
   });
 
-  test('a pending member keeps being denied on later logins, without a new row', async () => {
-    const { d, created } = deps({ user: member({ status: 'pending' }), seats: ROOMY });
+  test('a pending member with still no seat keeps being denied, without a new row', async () => {
+    const { d, created, attempts, activated } = deps({
+      user: waitingForSeat(), seats: FULL, used: { user: 1 },
+    });
     const r = await resolveUser(IDENTITY, DEVICE, d);
     assert.deepEqual(r, { ok: false, code: 'seats_exhausted' });
     assert.equal(created.length, 0);
+    assert.equal(activated.length, 0);
+    // Counted, so the queue can show how often they have tried.
+    assert.deepEqual(attempts, [{ userId: 'u1', reason: 'seats_exhausted' }]);
   });
 
   /**
@@ -311,6 +347,208 @@ describe('gates', () => {
   test('a stale device does not deny — staleness is analytics, not access', async () => {
     const { d } = deps({ ...active, device: { id: 'dev-1', status: 'stale' } });
     assert.equal((await resolveUser(IDENTITY, DEVICE, d)).ok, true);
+  });
+});
+
+/* ---------------- join policy and the queue ---------------- */
+
+describe('join policy: approval', () => {
+  test('a newcomer waits for approval even with a free seat, and takes none', async () => {
+    const { d, created, requests, activated } = deps({ domainOrg: ORG_APPROVAL, org: ORG_APPROVAL, seats: ROOMY });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.deepEqual(r, { ok: false, code: 'awaiting_approval' });
+    assert.equal(created.length, 1);
+    assert.equal(created[0]?.status, 'pending');
+    assert.equal(created[0]?.pendingReason, 'awaiting_approval');
+    assert.equal(created[0]?.orgId, 'org-a');
+    // Not a seat: occupancy is a count of ACTIVE rows, and this one is not.
+    assert.equal(activated.length, 0);
+    // Not a global request either: the organisation is known.
+    assert.equal(requests.length, 0);
+  });
+
+  test('a known awaiting row keeps being denied and bumps the attempt', async () => {
+    const { d, created, activated, attempts } = deps({
+      user: member({ status: 'pending', pendingReason: 'awaiting_approval' }),
+      org: ORG_APPROVAL, seats: ROOMY,
+    });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.deepEqual(r, { ok: false, code: 'awaiting_approval' });
+    assert.equal(created.length, 0);
+    assert.equal(activated.length, 0, 'a free seat must not stand in for an approval');
+    assert.deepEqual(attempts, [{ userId: 'u1', reason: 'awaiting_approval' }]);
+  });
+
+  /**
+   * Policy flips. A row created under `approval` was told to wait for a
+   * decision; flipping to `automatic` later does not unmake that. In the
+   * other direction, a seat wait stops promoting itself the moment the
+   * organisation asks for approvals.
+   */
+  test('an awaiting row is never auto-promoted, even after the policy flips to automatic', async () => {
+    const { d, activated } = deps({
+      user: member({ status: 'pending', pendingReason: 'awaiting_approval' }),
+      org: ORG_A, seats: ROOMY,
+    });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.deepEqual(r, { ok: false, code: 'awaiting_approval' });
+    assert.equal(activated.length, 0);
+  });
+
+  test('under approval a seat wait stops auto-promoting, and a free seat changes nothing', async () => {
+    const { d, activated, attempts } = deps({ user: waitingForSeat(), org: ORG_APPROVAL, seats: ROOMY });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.deepEqual(r, { ok: false, code: 'seats_exhausted' });
+    assert.equal(activated.length, 0);
+    assert.deepEqual(attempts, [{ userId: 'u1', reason: 'seats_exhausted' }]);
+  });
+
+  test('an unlicensed org under approval still holds newcomers with no_licence', async () => {
+    const { d, created } = deps({ domainOrg: ORG_APPROVAL, org: ORG_APPROVAL, license: null });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.deepEqual(r, { ok: false, code: 'license_missing' });
+    assert.equal(created[0]?.pendingReason, 'no_licence');
+  });
+
+  test('a no_licence row stays waiting under approval once a licence exists', async () => {
+    const { d, activated, attempts } = deps({
+      user: member({ status: 'pending', pendingReason: 'no_licence' }),
+      org: ORG_APPROVAL, seats: ROOMY,
+    });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.equal(r.ok, false);
+    assert.equal(activated.length, 0);
+    // The licence is there now, so what they are waiting on is a decision
+    // about a seat — the reason is refreshed rather than left stale.
+    assert.equal(attempts[0]?.reason, 'seats_exhausted');
+  });
+});
+
+describe('join policy: automatic — the auto-assign rule', () => {
+  test('a seat wait is promoted at the next sign-in once a seat is free', async () => {
+    const { d, activated, attempts, created } = deps({
+      user: waitingForSeat(), seats: FULL, used: { user: 0 },
+    });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(r.tier, 1, 'a known row, promoted — not a fresh provision');
+      assert.equal(r.source, 'existing');
+      assert.equal(r.userId, 'u1');
+      assert.deepEqual(r.scopes, ['cleanup', 'general']);
+    }
+    assert.deepEqual(activated, ['u1']);
+    assert.equal(attempts.length, 0, 'a grant is not a failed attempt');
+    assert.equal(created.length, 0);
+  });
+
+  test('a no_licence wait is promoted once a licence with a free seat is issued', async () => {
+    const { d, activated } = deps({
+      user: member({ status: 'pending', pendingReason: 'no_licence' }), seats: ROOMY,
+    });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.equal(r.ok, true);
+    assert.deepEqual(activated, ['u1']);
+  });
+
+  test('a no_licence wait becomes a seat wait when the licence has no room', async () => {
+    const { d, activated, attempts } = deps({
+      user: member({ status: 'pending', pendingReason: 'no_licence' }), seats: FULL, used: { user: 1 },
+    });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.deepEqual(r, { ok: false, code: 'seats_exhausted' });
+    assert.equal(activated.length, 0);
+    assert.deepEqual(attempts, [{ userId: 'u1', reason: 'seats_exhausted' }]);
+  });
+
+  test('while the org has no licence a waiting member is held with no_licence', async () => {
+    const { d, activated, attempts } = deps({ user: waitingForSeat(), license: null });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.deepEqual(r, { ok: false, code: 'license_missing' });
+    assert.equal(activated.length, 0);
+    // Refreshed: they were waiting on a seat, now they are waiting on a licence.
+    assert.deepEqual(attempts, [{ userId: 'u1', reason: 'no_licence' }]);
+  });
+
+  test('a licence lapse does not turn an awaiting row into a licence wait', async () => {
+    const { d, attempts } = deps({
+      user: member({ status: 'pending', pendingReason: 'awaiting_approval' }), license: null,
+    });
+    await resolveUser(IDENTITY, DEVICE, d);
+    assert.equal(attempts[0]?.reason, 'awaiting_approval');
+  });
+
+  test('promotion runs the same gates as any other grant', async () => {
+    const { d, activated } = deps({
+      user: waitingForSeat(), seats: ROOMY, device: { id: 'dev-1', status: 'disabled' },
+    });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.deepEqual(r, { ok: false, code: 'device_disabled' });
+    // The seat was taken — the person is a member now — but the machine is
+    // still blocked. That is the existing rule for active members too.
+    assert.deepEqual(activated, ['u1']);
+  });
+
+  /**
+   * The accepted race. Two waiting members sign in at the same instant with
+   * one seat free: both count 0 used, both activate. The window is identical
+   * to first-sign-in provisioning today, the outcome is one role over-cap
+   * (visible on the Licence tab), and nobody is evicted — seats gate becoming
+   * active and never revisit a grant. Documented here so it is a choice, not
+   * a surprise.
+   */
+  test('the count and the activation are separate steps (the documented race)', async () => {
+    let used = 0;
+    const { d, activated } = deps({ user: waitingForSeat(), seats: FULL });
+    d.countActiveInRole = async () => used;
+    d.activateUser = async (id) => { activated.push(id); used += 1; };
+    const first = await resolveUser(IDENTITY, DEVICE, d);
+    const second = await resolveUser(IDENTITY, DEVICE, d);
+    assert.equal(first.ok, true);
+    assert.deepEqual(second, { ok: false, code: 'seats_exhausted' });
+    assert.equal(activated.length, 1);
+  });
+});
+
+describe('rejected members', () => {
+  test('a rejected member is denied membership_rejected and the attempt is counted', async () => {
+    const { d, created, activated, attempts } = deps({ user: member({ status: 'rejected' }), seats: ROOMY });
+    const r = await resolveUser(IDENTITY, DEVICE, d);
+    assert.deepEqual(r, { ok: false, code: 'membership_rejected' });
+    assert.equal(created.length, 0, 'no new row: the decision is sticky');
+    assert.equal(activated.length, 0, 'a free seat does not override a rejection');
+    // No reason: a rejected row must keep pending_reason null.
+    assert.deepEqual(attempts, [{ userId: 'u1', reason: undefined }]);
+  });
+
+  test('a rejected member is not auto-promoted whatever the policy', async () => {
+    for (const org of [ORG_A, ORG_APPROVAL]) {
+      const { d, activated } = deps({ user: member({ status: 'rejected' }), org, seats: ROOMY });
+      const r = await resolveUser(IDENTITY, DEVICE, d);
+      assert.equal(r.ok, false);
+      assert.equal(activated.length, 0);
+    }
+  });
+});
+
+describe('gate order for waiting and rejected members', () => {
+  test('a suspended organisation is reported before the membership state', async () => {
+    for (const user of [waitingForSeat(), member({ status: 'rejected' })]) {
+      const { d, attempts } = deps({ user, org: { ...ORG_A, status: 'suspended' }, seats: ROOMY });
+      assert.deepEqual(await resolveUser(IDENTITY, DEVICE, d), { ok: false, code: 'org_suspended' });
+      assert.equal(attempts.length, 0, 'a suspension is not this person doing anything');
+    }
+  });
+
+  test('a disabled member is reported before a rejection could be', async () => {
+    const { d } = deps({ user: member({ status: 'disabled' }), seats: ROOMY });
+    assert.deepEqual(await resolveUser(IDENTITY, DEVICE, d), { ok: false, code: 'user_disabled' });
+  });
+
+  test('an expired licence holds a waiting member on the licence, not the seat', async () => {
+    const { d, attempts } = deps({ user: waitingForSeat(), seats: ROOMY, today: '2027-01-01' });
+    assert.deepEqual(await resolveUser(IDENTITY, DEVICE, d), { ok: false, code: 'license_expired' });
+    assert.deepEqual(attempts, [{ userId: 'u1', reason: 'no_licence' }]);
   });
 });
 
