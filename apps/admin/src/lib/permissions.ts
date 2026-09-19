@@ -60,6 +60,14 @@ export const ROLE_LABEL: Record<PortalRole, string> = {
   viewer: 'Viewer',
 };
 
+/** One line per role, in the words the table above uses. Shown on the account page. */
+export const ROLE_DESCRIPTION: Record<PortalRole, string> = {
+  owner: 'Everything, including portal users and two-factor resets.',
+  admin: 'Everything except managing portal users.',
+  support: 'Sees everything. Reviews access requests and disables devices. No licence or organisation changes.',
+  viewer: 'Read only.',
+};
+
 /** Actions the API guards with `requireStepUp` — the UI must collect a TOTP first. */
 export const STEP_UP_ACTIONS = new Set([
   'org.suspend',

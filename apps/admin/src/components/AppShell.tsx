@@ -71,11 +71,8 @@ function usePendingRequests(): number {
 export function AppShell({ children }: { children: ReactNode }) {
   const { user } = useSession();
   const pendingRequests = usePendingRequests();
-
-  async function logout() {
-    await api('/admin/auth/logout', { method: 'POST' }).catch(() => undefined);
-    window.location.href = '/login';
-  }
+  const path = usePathname();
+  const onProfile = path === '/profile';
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -85,28 +82,33 @@ export function AppShell({ children }: { children: ReactNode }) {
             DIGIBIM <span className="font-medium text-ink-3">Licensing</span>
           </Link>
 
-          <div className="ml-auto flex items-center gap-3 min-w-0">
-            {user && (
-              <div className="min-w-0 text-right hidden sm:block">
-                <p className="text-meta font-medium truncate">{user.email}</p>
-                <p className="text-micro text-ink-3 leading-none">{ROLE_LABEL[user.role]}</p>
-              </div>
-            )}
-            {user && (
+          {/*
+            The identity block is the way to the account page, and Sign out
+            lives there behind a confirmation. It used to be a bare header
+            link: one stray click ended the session with no way of seeing
+            whose session it was.
+          */}
+          {user && (
+            <Link
+              href="/profile"
+              aria-label="Your account"
+              aria-current={onProfile ? 'page' : undefined}
+              className={`ml-auto flex items-center gap-3 min-w-0 rounded-sm -mr-2 px-2 py-1 transition-colors hover:bg-paper ${
+                onProfile ? 'bg-paper' : ''
+              }`}
+            >
+              <span className="min-w-0 text-right hidden sm:block">
+                <span className="block text-meta font-medium truncate">{user.email}</span>
+                <span className="block text-micro text-ink-3 leading-none">{ROLE_LABEL[user.role]}</span>
+              </span>
               <span
                 aria-hidden
                 className="w-[26px] h-[26px] rounded-full bg-signal-soft text-signal grid place-items-center text-micro font-semibold shrink-0"
               >
                 {initials(user.email, user.displayName)}
               </span>
-            )}
-            <button
-              onClick={logout}
-              className="text-micro uppercase tracking-wider text-ink-3 hover:text-ink whitespace-nowrap"
-            >
-              Sign out
-            </button>
-          </div>
+            </Link>
+          )}
         </div>
 
         <Tabs
