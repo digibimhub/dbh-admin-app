@@ -151,3 +151,12 @@ NODE_ENV=production pnpm --filter @app/api start   # needs real keys set
 Expect `dev-hint` to go quiet and the session cookie to demand HTTPS — behind
 plain `http://localhost` the browser will not store a `Secure` cookie, so
 terminate TLS or test the API with `curl` instead.
+
+## Local API against the cloud database
+
+A third shape: `NODE_ENV=development`, real data. The API upserts its public
+key into `signing_keys` on boot and production serves JWKS from that table, so
+starting it with the local dev key overwrites production's published key — it
+happened once. Production's `JWT_SIGNING_KEY_PEM` and `ENCRYPTION_KEY` must be
+in `.env` first, jobs and the dev hint off, and none of the seeding commands
+may run. The `cloud-db-local-run` skill has the checklist.

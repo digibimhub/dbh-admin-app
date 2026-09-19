@@ -29,6 +29,8 @@ thing any screen renders.
 - [docs/scopes.md](docs/scopes.md) — the contract with the shipped DLL
 - [docs/addin-auth.md](docs/addin-auth.md) — the security model, and why
   refresh-token rotation has a replay window
+- [docs/ADDIN-INTEGRATION.md](docs/ADDIN-INTEGRATION.md) — the contract a
+  Revit add-in codes against: endpoints, bodies, claims, deny codes
 
 ## Quick start
 

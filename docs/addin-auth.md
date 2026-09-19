@@ -81,6 +81,19 @@ Three things about it are deliberate:
 - **Absent means "cannot check", never "refuse".** An add-in older than the
   field must still sign in, and Revit can legitimately be signed out — a case
   the add-in refuses for itself, before reaching the API.
+- **It is checked again at every `/v1/token/refresh`.** Sign-in proves the pair
+  once; the refresh keeps it true, because Revit can be signed in to somebody
+  else tomorrow while yesterday's cached session is still valid. The add-in
+  sends the same `revitLoginUserId`, compared against the member's stored
+  `autodesk_id`. A mismatch is an ordinary denial — nothing rotates or is
+  revoked — so signing Revit back in as the right account restores access at
+  the next check.
+
+Every comparison writes one `[addin:revit-account]` line to the API log with
+the Revit id, the Autodesk id and the verdict (identifiers only, never a
+token). Until a real `LoginUserId` has been seen next to a real `sub`, that
+line is the evidence the two are the same string; after that it is the audit
+trail for a refusal.
 
 The value is client-asserted and so does **not** breach the rule above. It
 cannot grant anything, widen anything or name anybody; identity still comes only
