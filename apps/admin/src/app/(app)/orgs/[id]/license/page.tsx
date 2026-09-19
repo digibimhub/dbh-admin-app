@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, errorMessage } from '@/lib/api';
-import { LICENSE_TZ_NOTE, daysUntil, formatDateOnly } from '@/lib/format';
+import { LICENSE_TZ_NOTE, addMonths, daysUntil, formatDateOnly, todayIso } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { useOrg } from '@/components/OrgContext';
 import { DangerDialog } from '@/components/DangerDialog';
@@ -11,23 +11,14 @@ import {
   type LicenseEventRow, type LicenseMode, type License, type RoleRow, type SeatRow,
 } from '@/lib/types';
 import {
-  Button, EmptyState, ErrorNote, FormBar, FormGrid, Note, Pill, Row, Section,
-  Select, StatusPill, TextInput, TimeAgo,
+  Button, EmptyState, ErrorNote, FormBar, FormGrid, Note, Row, Section,
+  Select, StatusText, TextInput, TimeAgo,
 } from '@/components/ui';
 
 const EXTEND_OPTIONS = [1, 3, 6, 12];
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-function addMonths(iso: string, months: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCMonth(d.getUTCMonth() + months);
-  return d.toISOString().slice(0, 10);
-}
-
 const MODE_NOTE: Record<LicenseMode, string> = {
-  internal: 'Our own people. Not a commercial relationship — give it a far-future end date.',
+  internal: 'Our own people. Not a commercial relationship. Give it a far-future end date.',
   trial: 'A customer evaluating. Short term, small seat counts.',
   standard: 'A paying customer.',
 };
@@ -38,7 +29,7 @@ const MODE_NOTE: Record<LicenseMode, string> = {
  * Seats per role, with occupancy.
  *
  * `used` is a live count of active members in that role, so it moves the
- * moment somebody is assigned or moved — there is no counter to refresh.
+ * moment somebody is assigned or moved. There is no counter to refresh.
  */
 function Seats({ seats, roles, canManage, onSave, busy }: {
   seats: SeatRow[];
@@ -73,18 +64,16 @@ function Seats({ seats, roles, canManage, onSave, busy }: {
     <Section
       title="Seats"
       note="How many people may hold each role. Past the count, the next person waits."
-      actions={canManage && !editing
-        ? <Button onClick={start}>Edit seats</Button>
-        : undefined}
+      actions={canManage && !editing ? <Button size="sm" onClick={start}>Edit seats</Button> : undefined}
     >
-      <div className="overflow-x-auto -mx-4 sm:-mx-6">
-        <table className="w-full text-body">
+      <div className="overflow-x-auto -mx-6">
+        <table className="w-full text-control text-ink">
           <thead>
-            <tr className="text-left border-y border-rule bg-paper">
-              <th className="text-micro font-medium uppercase tracking-[0.1em] text-ink-3 px-4 sm:px-6 py-2.5">Role</th>
-              <th className="text-micro font-medium uppercase tracking-[0.1em] text-ink-3 px-4 py-2.5 text-right">Used</th>
-              <th className="text-micro font-medium uppercase tracking-[0.1em] text-ink-3 px-4 py-2.5 text-right">Seats</th>
-              <th className="text-micro font-medium uppercase tracking-[0.1em] text-ink-3 px-4 sm:px-6 py-2.5" />
+            <tr className="text-left border-y border-ink/10">
+              <th className="font-bold px-6 py-4">Role</th>
+              <th className="font-bold px-4 py-4 text-right">Used</th>
+              <th className="font-bold px-4 py-4 text-right">Seats</th>
+              <th className="px-6 py-4" />
             </tr>
           </thead>
           <tbody>
@@ -92,29 +81,27 @@ function Seats({ seats, roles, canManage, onSave, busy }: {
               const full = s.used >= s.seats;
               const over = s.used > s.seats;
               return (
-                <tr key={s.roleKey} className={`border-b border-rule last:border-0 ${over ? 'border-l-2 border-l-warn' : ''}`}>
-                  <td className="px-4 sm:px-6 py-2.5 font-medium">{s.name}</td>
-                  <td className={`px-4 py-2.5 text-right tabular-nums ${over ? 'text-warn font-medium' : ''}`}>
-                    {s.used}
-                  </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">
+                <tr key={s.roleKey} className="border-b border-rule last:border-0">
+                  <td className="px-6 py-4 font-semibold">{s.name}</td>
+                  <td className={`px-4 py-4 text-right tabular-nums ${over ? 'font-bold' : ''}`}>{s.used}</td>
+                  <td className="px-4 py-4 text-right tabular-nums">
                     {editing ? (
                       <TextInput
                         type="number"
                         min={0}
                         value={draft[s.roleKey] ?? '0'}
                         onChange={(e) => setDraft({ ...draft, [s.roleKey]: e.target.value })}
-                        className="!w-[88px] !py-1 text-right"
+                        className="!w-[96px] !h-8 text-right ml-auto"
                         aria-label={`Seats for ${s.name}`}
                       />
                     ) : s.seats}
                   </td>
-                  <td className="px-4 sm:px-6 py-2.5">
+                  <td className="px-6 py-4 tabular-nums">
                     {over
-                      ? <Pill tone="warn">over by {s.used - s.seats}</Pill>
+                      ? <b className="text-ink">Over by {s.used - s.seats}</b>
                       : full
-                        ? <Pill tone="warn">full</Pill>
-                        : <span className="text-meta text-ink-3 tabular-nums">{s.seats - s.used} free</span>}
+                        ? <b className="text-ink">Full</b>
+                        : <span className="text-ink-3">{s.seats - s.used} free</span>}
                   </td>
                 </tr>
               );
@@ -124,8 +111,8 @@ function Seats({ seats, roles, canManage, onSave, busy }: {
       </div>
 
       {editing && (
-        <div className="flex justify-end gap-2 mt-4">
-          <Button variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+        <div className="flex justify-end gap-3 mt-4">
+          <Button onClick={() => setEditing(false)}>Cancel</Button>
           <Button
             variant="primary"
             disabled={busy}
@@ -140,7 +127,7 @@ function Seats({ seats, roles, canManage, onSave, busy }: {
       )}
 
       <Note>
-        Lowering a count below the people already in a role evicts nobody — it shows as over-cap
+        Lowering a count below the people already in a role evicts nobody. It shows as over-cap
         until somebody leaves.
       </Note>
     </Section>
@@ -190,13 +177,13 @@ export default function OrgLicensePage() {
 
   if (!license) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         {error && <ErrorNote>{error}</ErrorNote>}
         <Section title="No active licence">
           <EmptyState title="Nobody in this organisation can work">
             Every validation is denied with{' '}
-            <code className="font-mono text-meta">license_missing</code>, and nobody new can be
-            provisioned — seats live on the licence, so without one there is nothing to assign.
+            <code className="font-mono text-small">license_missing</code>, and nobody new can be
+            provisioned. Seats live on the licence, so without one there is nothing to assign.
           </EmptyState>
         </Section>
         {canManage && <IssueLicence orgId={orgId} roles={roles} onDone={() => { reload(); loadAside(); }} />}
@@ -207,79 +194,77 @@ export default function OrgLicensePage() {
   const remaining = daysUntil(license.endDate);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <Section
         title="Term"
         note={LICENSE_TZ_NOTE}
         actions={canManage ? (
-          <div className="flex gap-2">
-            {license.status === 'suspended'
-              ? (
-                <Button
-                  onClick={() => call(`/admin/licenses/${license.id}/resume`, { reason: 'resumed from the portal' })}
-                  disabled={busy}
-                >
-                  Resume
-                </Button>
-              )
-              : <Button variant="danger" onClick={() => setSuspending(true)}>Suspend</Button>}
-          </div>
+          license.status === 'suspended'
+            ? (
+              <Button
+                size="sm"
+                onClick={() => call(`/admin/licenses/${license.id}/resume`, { reason: 'resumed from the portal' })}
+                disabled={busy}
+              >
+                Resume
+              </Button>
+            )
+            : <Button size="sm" onClick={() => setSuspending(true)}>Suspend…</Button>
         ) : undefined}
       >
         <FormGrid>
-          <Row label="Mode">
+          <Row label="Mode" hint={MODE_NOTE[license.mode]}>
             {canManage ? (
               <Select
                 value={license.mode}
                 disabled={busy}
                 onChange={(e) => call(`/admin/licenses/${license.id}`, { mode: e.target.value }, 'PATCH')}
-                className="!w-[160px] !py-1"
+                className="!w-[170px] !h-8 !text-small !py-0"
                 aria-label="Licence mode"
               >
                 {LICENSE_MODES.map((m) => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
               </Select>
             ) : MODE_LABEL[license.mode]}
           </Row>
-          <Row label="Status"><StatusPill status={license.status} /></Row>
+          <Row label="Status"><StatusText status={license.status} attention={license.status !== 'active'} /></Row>
           <Row label="Period">
             <span className="tabular-nums">
               {formatDateOnly(license.startDate)} → {formatDateOnly(license.endDate)}
             </span>
             {remaining !== null && (
-              <span className={`ml-2 text-meta ${remaining < 0 ? 'text-deny' : remaining <= 30 ? 'text-warn' : 'text-ink-3'}`}>
-                {remaining < 0 ? `${-remaining}d overdue` : `${remaining}d left`}
+              <span className={`ml-2 tabular-nums ${remaining <= 30 ? 'font-bold text-ink' : 'text-ink-3'}`}>
+                {remaining < 0 ? `${-remaining} days overdue` : `${remaining} days left`}
               </span>
             )}
           </Row>
           <Row label="Grace days" hint="Days offline still allowed, counted from the last successful check.">
             <span className="tabular-nums">{license.graceDays}</span>
           </Row>
+          {canManage && (
+            <Row label="Extend by">
+              <span className="flex flex-wrap gap-2">
+                {EXTEND_OPTIONS.map((m) => (
+                  <Button
+                    key={m}
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => call(`/admin/licenses/${license.id}/extend`, {
+                      months: m,
+                      reason: `extended ${m} month${m === 1 ? '' : 's'} from the portal`,
+                    })}
+                    title={`New end date: ${formatDateOnly(addMonths(
+                      license.endDate > todayIso() ? license.endDate : todayIso(), m,
+                    ))}`}
+                  >
+                    {m} month{m === 1 ? '' : 's'}
+                  </Button>
+                ))}
+              </span>
+            </Row>
+          )}
         </FormGrid>
-
-        <p className="text-meta text-ink-3 mt-3">{MODE_NOTE[license.mode]}</p>
-
-        {canManage && (
-          <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-rule">
-            <span className="text-micro uppercase tracking-wider text-ink-3 mr-1">Extend by</span>
-            {EXTEND_OPTIONS.map((m) => (
-              <Button
-                key={m}
-                disabled={busy}
-                onClick={() => call(`/admin/licenses/${license.id}/extend`, {
-                  months: m,
-                  reason: `extended ${m} month${m === 1 ? '' : 's'} from the portal`,
-                })}
-                title={`New end date: ${addMonths(
-                  license.endDate > todayIso() ? license.endDate : todayIso(), m,
-                )}`}
-              >
-                +{m}m
-              </Button>
-            ))}
-          </div>
-        )}
       </Section>
 
       <Seats
@@ -292,16 +277,16 @@ export default function OrgLicensePage() {
 
       <Section title="History" note="Every change to this licence, with the reason it was given.">
         {events.length ? (
-          <ul className="space-y-2">
-            {events.map(({ event, actorEmail }) => (
-              <li key={event.id} className="text-body flex flex-wrap gap-x-2 items-baseline">
-                <span className="font-mono text-meta text-signal">{event.eventType}</span>
+          <ul>
+            {events.map(({ event, actorEmail }, i) => (
+              <li key={event.id} className={`py-3 flex flex-wrap gap-x-3 gap-y-1 items-baseline ${i > 0 ? 'border-t border-rule' : ''}`}>
+                <span className="font-mono text-small text-ink">{event.eventType}</span>
                 {event.oldEndDate && event.newEndDate && (
-                  <span className="tabular-nums text-meta">
+                  <span className="tabular-nums text-meta text-ink-3">
                     {formatDateOnly(event.oldEndDate)} → {formatDateOnly(event.newEndDate)}
                   </span>
                 )}
-                {event.reason && <span className="text-ink-2">{event.reason}</span>}
+                {event.reason && <span className="text-body text-ink-2">{event.reason}</span>}
                 <span className="text-meta text-ink-3 ml-auto">
                   {actorEmail ?? 'system'} · <TimeAgo value={event.createdAt} />
                 </span>
@@ -316,6 +301,7 @@ export default function OrgLicensePage() {
       <DangerDialog
         open={suspending}
         title="Suspend licence"
+        verb="suspend"
         targetKind="licence"
         target={`${MODE_LABEL[license.mode]} — ${detail.org.name}`}
         consequence={`Every validation is denied with license_suspended. Sessions stay valid, so resuming restores ${detail.counts.users} people without anybody signing in again.`}
@@ -384,7 +370,7 @@ function IssueLicence({ orgId, roles, onDone }: {
         <Row label="Start date" htmlFor="lic-start" width="short">
           <TextInput id="lic-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
         </Row>
-        <Row label="End date" htmlFor="lic-end" width="short" hint="Inclusive — a licence ending today is still valid today.">
+        <Row label="End date" htmlFor="lic-end" width="short" hint="Inclusive. A licence ending today is still valid today.">
           <TextInput id="lic-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
         </Row>
         <Row label="Grace days" htmlFor="lic-grace" width="tiny">
@@ -409,9 +395,7 @@ function IssueLicence({ orgId, roles, onDone }: {
           </Button>
         </FormBar>
       </FormGrid>
-      <Note>
-        A role with no seats cannot be held by anybody. Leaving one at 0 is how a plan excludes it.
-      </Note>
+      <Note>A role with no seats cannot be held by anybody. Leaving one at 0 is how a plan excludes it.</Note>
     </Section>
   );
 }

@@ -1,115 +1,141 @@
 'use client';
 
-import { useState } from 'react';
-import { api } from '@/lib/api';
-import { useSession } from '@/lib/session';
+import { useState, type FormEvent } from 'react';
+import { api, errorMessage } from '@/lib/api';
+import { useScope, useSession } from '@/lib/session';
 import { ROLE_DESCRIPTION, ROLE_LABEL } from '@/lib/permissions';
 import { formatAbsolute } from '@/lib/format';
-import { Modal } from '@/components/Modal';
-import { Button, DefList, Note, PageHeader, Pill, Section, TimeAgo } from '@/components/ui';
+import { SignOutDialog } from '@/components/SignOutDialog';
+import {
+  Avatar, Button, DefList, ErrorNote, Field, InfoBanner, Note, PageHeader, Section, TextInput, TimeAgo,
+} from '@/components/ui';
 
 /**
- * The person holding the session, and the one thing they can do to it.
- *
- * Sign out used to be a bare link in the header, one click from ending the
- * session with no confirmation and no way to see whose session it was. It now
- * lives here, behind a confirmation that says what signing out does — it ends
- * the session in every browser, because the API bumps the session epoch rather
- * than clearing one cookie.
+ * The person holding the session: who they are, and the two things they can
+ * do to it — end it everywhere, or change the password it was opened with.
  */
 export default function ProfilePage() {
   const { user } = useSession();
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const scope = useScope();
+  const [signingOut, setSigningOut] = useState(false);
 
   if (!user) return null;
 
-  async function signOut() {
-    setBusy(true);
-    // A failed call still ends in /login: the cookie may already be stale, and
-    // the login page is the right place to find that out.
-    await api('/admin/auth/logout', { method: 'POST' }).catch(() => undefined);
-    window.location.href = '/login';
-  }
+  const roleLine = scope.kind === 'org'
+    ? `${ROLE_LABEL.org_admin} · ${scope.orgName}`
+    : ROLE_LABEL[user.role];
 
   const twoFactor = user.totpResetRequired
-    ? <Pill tone="warn">reset required</Pill>
+    ? <span className="font-semibold">Reset required</span>
     : user.totpEnabled
       ? (
-        <span className="inline-flex items-center gap-2">
-          <Pill tone="allow">enabled</Pill>
+        <>
+          Enrolled
           {user.totpEnrolledAt && (
-            <span className="text-meta text-ink-3">
-              since <TimeAgo value={user.totpEnrolledAt} />
-            </span>
+            <p className="text-meta text-ink-3">since <TimeAgo value={user.totpEnrolledAt} /></p>
           )}
-        </span>
+        </>
       )
-      : <Pill tone="deny">not enrolled</Pill>;
+      : <span className="font-semibold">Not enrolled</span>;
 
   return (
     <div>
       <PageHeader
-        eyebrow="Account"
+        variant="record"
+        avatar={<Avatar name={user.displayName} email={user.email} size={48} />}
         title={user.displayName?.trim() || user.email}
-        lede="Your operator account on this portal."
+        subline={`${roleLine} · ${user.email}`}
+        actions={<Button onClick={() => setSigningOut(true)}>Sign out…</Button>}
       />
 
-      <div className="space-y-4 max-w-3xl">
-        <Section title="Profile">
+      <div className="grid gap-6 lg:grid-cols-2 items-start">
+        <Section title="Profile" note="What the portal knows about you.">
           <DefList
             items={[
               ['Email', user.email],
-              ['Name', user.displayName?.trim() || <span className="text-ink-3">not set</span>],
+              ['Name', user.displayName?.trim() || <span className="text-ink-3">Not set</span>],
               ['Role', (
-                <span className="inline-flex flex-wrap items-center gap-2">
-                  <Pill tone="neutral">{ROLE_LABEL[user.role]}</Pill>
-                  <span className="text-meta text-ink-2">{ROLE_DESCRIPTION[user.role]}</span>
-                </span>
+                <>
+                  {roleLine}
+                  <p className="text-meta text-ink-3">{ROLE_DESCRIPTION[user.role]}</p>
+                </>
               )],
               ['Two-factor', twoFactor],
               ['Last sign-in', user.lastLoginAt
                 ? (
-                  <span title={formatAbsolute(user.lastLoginAt)}>
-                    <TimeAgo value={user.lastLoginAt} className="tabular-nums" />
-                    {user.lastLoginIp && <span className="text-meta text-ink-3"> from {user.lastLoginIp}</span>}
-                  </span>
+                  <>
+                    <span title={formatAbsolute(user.lastLoginAt)}><TimeAgo value={user.lastLoginAt} /></span>
+                    {user.lastLoginIp && <p className="text-meta text-ink-3">from {user.lastLoginIp}</p>}
+                  </>
                 )
-                : <span className="text-ink-3">no sign-in recorded</span>],
-              ['Account created', <TimeAgo key="created" value={user.createdAt} className="tabular-nums" />],
+                : <span className="text-ink-3">No sign-in recorded</span>],
+              ['Account created', <TimeAgo key="created" value={user.createdAt} />],
             ]}
           />
         </Section>
 
         <Section
-          title="Session"
-          note="Sessions last eight hours. Signing out ends yours in every browser and tab at once."
-          actions={<Button variant="danger" onClick={() => setConfirming(true)}>Sign out…</Button>}
+          title="Security"
+          note="Sessions last eight hours. Signing out ends every session on every device."
         >
+          <ChangePassword />
           <Note>
             Lost your authenticator? There is no self-service reset. An owner can reset it from
-            Settings → Portal users, and your next sign-in enrols a new one.
+            Settings, and your next sign-in enrols a new one.
           </Note>
         </Section>
       </div>
 
-      <Modal open={confirming} title="Sign out" onClose={() => { if (!busy) setConfirming(false); }}>
-        <div className="space-y-3">
-          <p className="text-body">
-            Sign out of <b>{user.email}</b>?
-          </p>
-          <p className="text-meta text-ink-2">
-            This ends your session in every browser and tab where you are signed in. Signing back in
-            needs your password and a code from your authenticator.
-          </p>
-          <div className="flex flex-wrap justify-end gap-2 pt-1">
-            <Button variant="ghost" onClick={() => setConfirming(false)} disabled={busy}>Cancel</Button>
-            <Button variant="danger" onClick={signOut} disabled={busy}>
-              {busy ? 'Signing out…' : 'Sign out'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      <SignOutDialog open={signingOut} onClose={() => setSigningOut(false)} />
     </div>
+  );
+}
+
+/** `POST /admin/auth/password` — the current password is the proof, no step-up. */
+function ChangePassword() {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const ready = current.length > 0 && next.length >= 12 && next === confirm && next !== current;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!ready) return;
+    setBusy(true);
+    setError(null);
+    setDone(false);
+    try {
+      await api('/admin/auth/password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      });
+      setCurrent(''); setNext(''); setConfirm('');
+      setDone(true);
+    } catch (err: unknown) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4 max-w-[360px]">
+      {error && <ErrorNote>{error}</ErrorNote>}
+      {done && <InfoBanner className="!mb-0">Your password has been changed.</InfoBanner>}
+      <Field label="Current password">
+        <TextInput type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required />
+      </Field>
+      <Field label="New password" hint="At least 12 characters.">
+        <TextInput type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={12} required />
+      </Field>
+      <Field label="Confirm new password" hint={confirm && confirm !== next ? 'The two do not match.' : undefined}>
+        <TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required />
+      </Field>
+      <Button type="submit" disabled={busy || !ready}>{busy ? 'Changing…' : 'Change password'}</Button>
+    </form>
   );
 }

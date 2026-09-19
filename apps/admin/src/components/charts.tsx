@@ -8,11 +8,10 @@ import { formatNumber } from '@/lib/format';
  * bundle stays at next + react + tailwind, and none of these shapes are complex
  * enough to earn a dependency.
  *
- * The categorical palette is anchored to the brand indigo and chosen by search
- * over the Tailwind 600/700/800 steps, maximising the minimum CIELAB ΔE under
+ * The categorical palette starts from the link blue and the info violet and was
+ * chosen by search, maximising the minimum CIELAB ΔE under
  * Viénot-1999 protan/deutan/tritan simulation. Against the white card surface
- * all six slots clear 3:1, minimum ΔE is 18.4 (deuteranopia) / 20.3
- * (protanopia), and lightness is staggered (L* 41/56/37/47/49/41) so where hue
+ * all six slots clear 3:1, and lightness is staggered so where hue
  * collapses under CVD, lightness still carries identity. Colours are assigned
  * in fixed order and never cycled — a 6th+ series folds into "Other" instead of
  * inventing a hue.
@@ -26,16 +25,14 @@ import { formatNumber } from '@/lib/format';
  * not exist during SSR. Keep them in sync with `globals.css` by hand — do not
  * "fix" this by reaching for the tokens.
  */
-export const SERIES = ['#4F46E5', '#0891B2', '#166534', '#A16207', '#DB2777', '#A21CAF'];
+export const SERIES = ['#006EAF', '#5F60FF', '#1E7F4F', '#B25E00', '#DD2222', '#535353'];
 export const SERIES_MAX = SERIES.length;
 
-const INK = '#0F172A';
+const INK = '#000000';
 // Kept in step with --ink-3 in globals.css by hand, because an SVG presentation
-// attribute cannot resolve var(). It was left on the prototype's #64748B when
-// that token was darkened for AA contrast, so every axis label here was the
-// failing value.
-const INK_3 = '#5F6E85';
-const RULE = '#E3E8EF';
+// attribute cannot resolve var(). Re-check it whenever the token moves.
+const INK_3 = '#666666';
+const RULE = '#D9D9D9';
 /** The card surface. Segment/band strokes paint this so adjacent shapes separate. */
 const SURFACE = '#FFFFFF';
 
@@ -147,7 +144,7 @@ export function LineChart({ points, height = 180, unit = '' }: {
         </text>
       </svg>
       {active && (
-        <div className="absolute top-0 right-0 bg-card border border-rule rounded-sm px-2 py-1 tabular-nums text-micro pointer-events-none">
+        <div className="absolute top-0 right-0 bg-tooltip text-card rounded-sm px-2 py-1 tabular-nums text-micro pointer-events-none">
           {active.label} · <b>{formatNumber(active.value)}</b>{unit}
         </div>
       )}
@@ -214,7 +211,7 @@ export function GroupedBars({ groups, seriesNames, height = 170 }: {
           ))}
         </svg>
         {active && (
-          <div className="absolute top-0 right-0 bg-card border border-rule rounded-sm px-2 py-1 tabular-nums text-micro pointer-events-none">
+          <div className="absolute top-0 right-0 bg-tooltip text-card rounded-sm px-2 py-1 tabular-nums text-micro pointer-events-none">
             {active.label}
             {active.values.map((v, i) => (
               <span key={i}> · {seriesNames[i]} <b>{formatNumber(v)}</b></span>
@@ -275,7 +272,7 @@ export function Donut({ slices, size = 168 }: {
             opacity={hover === null || hover === i ? 1 : 0.45}
             onMouseEnter={() => setHover(i)} />
         ))}
-        <text x={cx} y={cy - 2} textAnchor="middle" fontSize="20" fontWeight="600" fill={INK}>
+        <text x={cx} y={cy - 2} textAnchor="middle" fontSize="20" fontWeight="700" fill={INK}>
           {formatNumber(focused ? focused.value : total)}
         </text>
         <text x={cx} y={cy + 13} textAnchor="middle" fontSize="11" fill={INK_3}>
@@ -364,7 +361,7 @@ export function StackedArea({ labels, series, height = 180 }: {
           </text>
         </svg>
         {hover !== null && (
-          <div className="absolute top-0 right-0 bg-card border border-rule rounded-sm px-2 py-1 tabular-nums text-micro pointer-events-none">
+          <div className="absolute top-0 right-0 bg-tooltip text-card rounded-sm px-2 py-1 tabular-nums text-micro pointer-events-none">
             {labels[hover]}
             {bands.map((b) => (
               <span key={b.name}> · {b.name} <b>{formatNumber(b.values[hover] ?? 0)}</b></span>
@@ -391,10 +388,10 @@ export function BarList({ items, unit = '' }: {
           <span className="relative block h-6">
             <span className="absolute inset-y-0 left-0 rounded-sm" style={{
               width: `${Math.max(2, (item.value / max) * 100)}%`,
-              // Flat, not `SIGNAL` at 14%: an alpha fill composites against whatever
+              // Flat, not the link blue at 14%: an alpha fill composites against whatever
               // sits behind it, so the same bar rendered three different greys — on a
               // card, on the page ground, on a hovered row. This is that tint, once.
-              background: '#EEF2FF',
+              background: '#EFEFFF',
             }} />
             <span className="relative px-1.5 text-body leading-6 truncate block">{item.label}</span>
           </span>
@@ -425,10 +422,10 @@ export function Legend({ items, vertical }: {
 
 export function ChartCard({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
   return (
-    <section className="bg-card border border-rule rounded-md p-4 sm:p-6 shadow-card [&_section]:shadow-none [&_.shadow-card]:shadow-none">
-      <h3 className="font-semibold text-title">{title}</h3>
-      {note && <p className="text-meta text-ink-3 mb-3">{note}</p>}
-      <div className={note ? '' : 'mt-3'}>{children}</div>
+    <section className="bg-card border border-rule rounded-md p-6">
+      <h2 className="text-title font-bold text-ink">{title}</h2>
+      {note && <p className="text-meta text-ink-3 mt-1 mb-4">{note}</p>}
+      <div className={note ? '' : 'mt-4'}>{children}</div>
     </section>
   );
 }

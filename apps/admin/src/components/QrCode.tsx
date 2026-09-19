@@ -8,7 +8,7 @@ import { encodeQr } from '@/lib/qr';
  * black-on-white, and SVG `fill` attributes cannot read CSS variables during
  * SSR anyway. `INK` mirrors the `--ink` token value.
  */
-const INK = '#0F172A';
+const INK = '#000000';
 const QUIET = '#FFFFFF';
 
 /** Renders a QR matrix as one SVG path — no canvas, no library, no network call. */

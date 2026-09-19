@@ -79,8 +79,20 @@ export function AddUserDialog({ open, orgId, roles, onClose, onAdded }: {
   }
 
   return (
-    <Modal open={open} title="Add somebody manually" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
+    <Modal
+      open={open}
+      title="Add somebody manually"
+      onClose={onClose}
+      footer={(
+        <>
+          <Button onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" type="submit" form="add-user" disabled={busy || !emailOk || !targetOrg || !roleKey}>
+            {busy ? 'Adding…' : 'Add person'}
+          </Button>
+        </>
+      )}
+    >
+      <form id="add-user" onSubmit={submit} className="space-y-4">
         {error && <ErrorNote>{error}</ErrorNote>}
 
         {!orgId && (
@@ -93,19 +105,14 @@ export function AddUserDialog({ open, orgId, roles, onClose, onAdded }: {
         )}
 
         <Field label="Email" hint="Must match their Autodesk account address.">
-          <TextInput
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
+          <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </Field>
 
         <Field label="Display name" hint="Optional. Overwritten by Autodesk on first sign-in.">
           <TextInput value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
         </Field>
 
-        <Field label="Autodesk ID" hint="Optional. Globally unique — one person belongs to exactly one organisation.">
+        <Field label="Autodesk ID" hint="Optional. Globally unique. One person belongs to exactly one organisation.">
           <TextInput value={autodeskId} onChange={(e) => setAutodeskId(e.target.value)} className="font-mono" />
         </Field>
 
@@ -119,16 +126,7 @@ export function AddUserDialog({ open, orgId, roles, onClose, onAdded }: {
           </Select>
         </Field>
 
-        <Note>
-          Adding somebody before their first sign-in is fine — they are matched by email until then.
-        </Note>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={busy || !emailOk || !targetOrg || !roleKey}>
-            {busy ? 'Adding…' : 'Add person'}
-          </Button>
-        </div>
+        <Note>Adding somebody before their first sign-in is fine. They are matched by email until then.</Note>
       </form>
     </Modal>
   );

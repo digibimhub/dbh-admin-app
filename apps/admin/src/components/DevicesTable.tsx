@@ -4,14 +4,12 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, errorMessage, qs } from '@/lib/api';
 import { useUrlState } from '@/lib/useUrlState';
-import { useCan } from '@/lib/session';
 import { shortHash } from '@/lib/format';
 import {
   DEVICE_STATUSES, type DeviceRow, type Organization, type Paged,
 } from '@/lib/types';
 import { DataTable, PAGE_SIZE, Pagination, type Column } from './DataTable';
-import { DangerDialog } from './DangerDialog';
-import { Button, ErrorNote, Note, Pill, SEARCH_FIELD, Select, StatusPill, TextInput, TimeAgo } from './ui';
+import { Button, ErrorNote, Note, SearchInput, Select, StatusText, TimeAgo, memberStatusLabel } from './ui';
 
 const FILTER_DEFAULTS = { q: '', org: '', status: '', revit: '', stale: '' };
 
@@ -22,11 +20,8 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [disabling, setDisabling] = useState<DeviceRow | null>(null);
   const [revitOptions, setRevitOptions] = useState<string[]>([]);
-  const [tick, setTick] = useState(0);
 
-  const canManage = useCan('device.manage');
   const effectiveOrg = orgId ?? values.org;
 
   const load = useCallback(() => {
@@ -39,7 +34,7 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
       .finally(() => setLoading(false));
   }, [values.q, values.status, values.revit, effectiveOrg, page]);
 
-  useEffect(() => { load(); }, [load, tick]);
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     if (orgId) return;
@@ -67,19 +62,13 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
     return out;
   }, [data, values.stale]);
 
-  async function enable(row: DeviceRow) {
-    await api(`/admin/devices/${row.device.id}/enable`, { method: 'POST', body: '{}' })
-      .catch((e: unknown) => setError(errorMessage(e)));
-    setTick((t) => t + 1);
-  }
-
   const columns: Column<DeviceRow>[] = [
     {
       key: 'machine', header: 'Machine',
       cell: (r) => (
         <div>
-          <div className="font-medium">
-            {r.device.machineName ?? <span className="text-ink-3">unnamed</span>}
+          <div className="font-semibold text-ink">
+            {r.device.machineName ?? <span className="text-ink-3">Unnamed</span>}
           </div>
           <div className="font-mono text-micro text-ink-3">{shortHash(r.device.deviceHash)}</div>
         </div>
@@ -87,28 +76,29 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
       csv: (r) => `${r.device.machineName ?? ''} ${r.device.deviceHash}`.trim(),
     },
     {
-      key: 'user', header: 'User',
+      key: 'user', header: 'Person',
       cell: (r) => (r.device.orgUserId
-        ? <span className="text-meta">{r.userEmail ?? r.userName ?? 'linked user'}</span>
-        : <Pill tone="warn" title="No linked user — worth a look">unlinked</Pill>),
+        ? <span className="text-ink-3">{r.userEmail ?? r.userName ?? 'linked user'}</span>
+        : <span className="text-ink font-semibold" title="No linked user">Unlinked</span>),
       csv: (r) => r.userEmail ?? '',
     },
     ...(orgId ? [] : [{
       key: 'org', header: 'Organisation',
-      cell: (r: DeviceRow) => <span className="text-meta">{r.orgName}</span>,
+      cell: (r: DeviceRow) => r.orgName,
       csv: (r: DeviceRow) => r.orgName,
     }]),
     {
       key: 'seen', header: 'Last seen',
-      cell: (r) => <TimeAgo value={r.device.lastSeenAt} className="tabular-nums text-meta text-ink-2" />,
+      cell: (r) => <TimeAgo value={r.device.lastSeenAt} className="text-ink-3" />,
       csv: (r) => r.device.lastSeenAt,
     },
-    { key: 'status', header: 'Status', cell: (r) => <StatusPill status={r.device.status} />, csv: (r) => r.device.status },
+    {
+      key: 'status', header: 'Status',
+      cell: (r) => <StatusText status={r.device.status} attention={r.device.status === 'disabled'} />,
+      csv: (r) => r.device.status,
+    },
   ];
 
-  // Only the filters behind the disclosure are counted, so the badge means
-  // "there is an active filter you cannot see" rather than restating the ones
-  // already on screen.
   const hiddenFilterCount = [values.revit, values.stale].filter(Boolean).length;
 
   return (
@@ -121,13 +111,14 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
         rowKey={(r) => r.device.id}
         loading={loading}
         csvName="devices"
+        noun="devices"
+        total={values.stale ? undefined : data?.total}
         filters={(
           <>
-            <TextInput
+            <SearchInput
               placeholder="Search machine name or hash"
               defaultValue={values.q}
-              onKeyDown={(e) => { if (e.key === 'Enter') set({ q: (e.target as HTMLInputElement).value }); }}
-              className={SEARCH_FIELD}
+              onSearch={(q) => set({ q })}
               aria-label="Search devices"
             />
             {!orgId && (
@@ -138,7 +129,7 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
             )}
             <Select value={values.status} onChange={(e) => set({ status: e.target.value })} className="!w-auto" aria-label="Filter by status">
               <option value="">Any status</option>
-              {DEVICE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              {DEVICE_STATUSES.map((s) => <option key={s} value={s}>{memberStatusLabel(s)}</option>)}
             </Select>
             {activeFilterCount > 0 && <Button variant="ghost" onClick={reset}>Clear</Button>}
           </>
@@ -159,7 +150,7 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
         )}
         activeFilterCount={hiddenFilterCount}
         onRowClick={(r) => router.push(`/devices/${r.device.id}`)}
-        flagRow={(r) => (r.device.orgUserId ? null : 'No linked user — this device validated without resolving to a person')}
+        flagRow={(r) => (r.device.orgUserId ? null : 'No linked user. This device validated without resolving to a person.')}
         empty={{
           title: activeFilterCount ? 'No devices match these filters' : 'No devices yet',
           body: activeFilterCount
@@ -171,27 +162,8 @@ export function DevicesTable({ orgId }: { orgId?: string }) {
       />
       <Note>
         Devices are analytics; disabling one is the only access decision they carry. Rows with no
-        linked user are flagged — that is the anomaly worth opening.
+        linked user are flagged. That is the anomaly worth opening.
       </Note>
-
-      {disabling && (
-        <DangerDialog
-          open
-          title="Disable device"
-          targetKind="device"
-          target={`${disabling.device.machineName ?? shortHash(disabling.device.deviceHash, 24)} — ${disabling.orgName}`}
-          consequence="Validations from this machine are denied with device_disabled, for every user who signs in on it."
-          confirmLabel="Disable device"
-          onCancel={() => setDisabling(null)}
-          onConfirm={async (reason) => {
-            await api(`/admin/devices/${disabling.device.id}/disable`, {
-              method: 'POST', body: JSON.stringify({ reason }),
-            });
-            setDisabling(null);
-            setTick((t) => t + 1);
-          }}
-        />
-      )}
     </div>
   );
 }

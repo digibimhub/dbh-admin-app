@@ -4,53 +4,28 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from '@/lib/api';
 import { daysUntil, formatDateOnly, formatNumber } from '@/lib/format';
+import { useSession } from '@/lib/session';
 import { MODE_LABEL, type Dashboard, type LicenseMode } from '@/lib/types';
-import { ErrorNote, Loading, Pill, Section } from '@/components/ui';
+import {
+  ButtonLink, DefList, ErrorNote, GoLink, KpiStrip, Loading, PageHeader, Section,
+} from '@/components/ui';
 
-/**
- * One number, with somewhere to go when it is not zero.
- *
- * Every tile here is counted live rather than read from a nightly rollup. The
- * rollup tables were computed every night and read by nothing; against this
- * estate the counts are milliseconds, and a number that is right now beats one
- * that was right at 01:00.
- */
-function Tile({ label, value, href, tone, hint }: {
-  label: string;
-  value: number;
-  href?: string;
-  tone?: 'warn' | 'deny';
-  hint?: string;
-}) {
-  // A tile carries the tone it would have when it matters; at zero it means the
-  // opposite, so it recedes rather than shouting a coloured 0. The tone used to
-  // be made undefined at zero by every call site, which just painted it as
-  // ordinary ink and made a quiet 0 look exactly like a count worth reading.
-  const quiet = tone !== undefined && value === 0;
-  const body = (
-    <>
-      <p className="text-micro uppercase tracking-[0.12em] text-ink-3">{label}</p>
-      <p className={`text-kpi font-semibold tabular-nums mt-1 ${
-        quiet ? 'text-ink-3' : tone === 'deny' ? 'text-deny' : tone === 'warn' ? 'text-warn' : 'text-ink'
-      }`}
-      >
-        {formatNumber(value)}
-      </p>
-      {hint && !quiet && <p className="text-meta text-ink-3 mt-0.5">{hint}</p>}
-    </>
-  );
-  const cls = 'bg-card border border-rule rounded-md shadow-card px-4 py-3 block';
-  return href
-    ? <Link href={href} className={`${cls} hover:border-ink-3 transition-colors`}>{body}</Link>
-    : <div className={cls}>{body}</div>;
+function greeting(): string {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 }
 
+/**
+ * Every number here is counted live rather than read from a nightly rollup.
+ * The rollup tables were computed every night and read by nothing; against
+ * this estate the counts are milliseconds, and a number that is right now
+ * beats one that was right at 01:00.
+ */
 export default function DashboardPage() {
+  const { user } = useSession();
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // One request. The licences ending soon arrive with the counts rather than
-  // from a second call that pulled the whole estate to filter four rows.
   useEffect(() => {
     api<Dashboard>('/admin/dashboard')
       .then((d) => { setData(d); setError(null); })
@@ -60,128 +35,120 @@ export default function DashboardPage() {
   if (error) return <ErrorNote>{error}</ErrorNote>;
   if (!data) return <Loading what="Loading dashboard" />;
 
+  const firstName = user?.displayName?.trim().split(/\s+/)[0] || user?.email.split('@')[0] || 'there';
   const modes = Object.entries(data.licenses.byMode) as [LicenseMode, number][];
+  const waiting = data.people.pending + data.pendingRequests;
+  const soonest = data.endingSoon[0];
+  const fresh = data.orgs.total === 0;
+
+  const attention = [
+    ...data.overCap.map((r) => ({
+      key: `cap-${r.id}-${r.role_name}`,
+      orgId: r.id,
+      name: r.name,
+      detail: `${r.role_name} is full, ${formatNumber(r.used)} of ${formatNumber(r.seats)}.`,
+      href: `/orgs/${r.id}/license`,
+      action: 'Manage seats',
+      right: null as string | null,
+    })),
+    ...data.endingSoon.map((r) => {
+      const left = daysUntil(r.endDate) ?? 0;
+      return {
+        key: `end-${r.orgId}`,
+        orgId: r.orgId,
+        name: r.orgName,
+        detail: `${MODE_LABEL[r.mode]} licence ends ${formatDateOnly(r.endDate)}.`,
+        href: `/orgs/${r.orgId}/license`,
+        action: 'Manage licence',
+        right: left < 0 ? `${-left} days overdue` : `${left} days`,
+      };
+    }),
+  ];
 
   return (
     <div>
-      <h2 className="font-semibold text-page leading-tight tracking-tight mb-4">Dashboard</h2>
+      <PageHeader
+        title={`${greeting()}, ${firstName}`}
+        actions={<ButtonLink href="/orgs" variant="primary">Add organisation…</ButtonLink>}
+      />
 
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 mb-5">
-        <Tile label="Organisations" value={data.orgs.total} href="/orgs" />
-        <Tile
-          label="Suspended"
-          value={data.orgs.suspended}
-          tone="deny"
-          href="/orgs?status=suspended"
-        />
-        <Tile label="Active people" value={data.people.active} href="/users" />
-        <Tile
-          label="Awaiting a seat"
-          value={data.people.pending}
-          tone="warn"
-          href="/users?status=pending"
-          hint="blocked right now"
-        />
-        <Tile
-          label="Expiring in 30d"
-          value={data.licenses.expiringSoon}
-          tone="warn"
-          href="/licenses?window=30"
-        />
-        <Tile
-          label="Access requests"
-          value={data.pendingRequests}
-          tone="warn"
-          href="/requests"
-        />
-      </div>
+      <KpiStrip
+        items={[
+          { label: 'Organisations', value: formatNumber(data.orgs.total), link: { href: '/orgs', label: 'View organisations' } },
+          { label: 'Active people', value: formatNumber(data.people.active), link: { href: '/users', label: 'View people' } },
+          {
+            label: 'Awaiting',
+            value: formatNumber(waiting),
+            attention: waiting > 0,
+            help: waiting > 0
+              ? `${data.pendingRequests} access request${data.pendingRequests === 1 ? '' : 's'}, ${data.people.pending} member${data.people.pending === 1 ? '' : 's'} waiting`
+              : undefined,
+            link: { href: '/requests', label: 'Review requests' },
+          },
+          {
+            label: 'Licences ending in 30 days',
+            value: formatNumber(data.licenses.expiringSoon),
+            help: soonest ? `${soonest.orgName}, ${daysUntil(soonest.endDate) ?? 0} days` : undefined,
+            link: { href: '/licenses?window=30', label: 'View licences' },
+          },
+          { label: 'Active devices', value: formatNumber(data.devices.active), link: { href: '/devices', label: 'View devices' } },
+          { label: 'Suspended organisations', value: formatNumber(data.orgs.suspended), link: { href: '/orgs?status=suspended', label: 'View' } },
+        ]}
+      />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/*
-          Over-cap is the roll-up of the seat rules, and the one row on this
-          page that is unambiguously somebody's job today.
-        */}
+      {fresh && (
+        <Section title="Get started" note="Three steps before anyone can sign in from Revit." className="mb-6">
+          <ul>
+            {[
+              ['Add an organisation', 'A customer is an organisation. Domains, the licence and every person hang off it.', '/orgs', 'Add organisation'],
+              ['Register a domain', 'People sign in with their work email. The domain decides which organisation they join.', '/orgs', 'Register a domain'],
+              ['Issue a licence', 'Seats live on the licence, per role. Without one nobody gets a seat.', '/orgs', 'Issue a licence'],
+            ].map(([label, detail, href, go], i) => (
+              <li key={label} className={`flex gap-3 py-2.5 ${i > 0 ? 'border-t border-rule' : ''}`}>
+                <span aria-hidden className="w-6 shrink-0 font-bold text-ink-3">–</span>
+                <div>
+                  <span className="text-ink">{label}</span>{' '}
+                  <GoLink href={href!}>{go}</GoLink>
+                  <p className="text-meta text-ink-3">{detail}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      <div className="grid gap-6 lg:grid-cols-2 items-start">
         <Section
-          title="Roles over their seat count"
-          note="Nobody is evicted — but this is what a renewal conversation is made of."
+          title="Needs attention"
+          note="Roles over their seat count and licences ending inside 30 days."
         >
-          {data.overCap.length ? (
-            <ul className="divide-y divide-rule -my-1">
-              {data.overCap.map((r) => (
-                <li key={`${r.id}-${r.role_name}`} className="py-2 flex items-baseline gap-2 flex-wrap">
-                  <Link href={`/orgs/${r.id}/license`} className="font-medium text-signal hover:underline">
-                    {r.name}
-                  </Link>
-                  <span className="text-meta text-ink-2">{r.role_name}</span>
-                  <span className="ml-auto tabular-nums text-meta">
-                    <b className="text-warn">{r.used}</b> / {r.seats}
-                  </span>
+          {attention.length ? (
+            <ul>
+              {attention.map((a, i) => (
+                <li key={a.key} className={`flex items-center gap-4 py-3 ${i > 0 ? 'border-t border-rule' : ''}`}>
+                  <div className="min-w-0">
+                    <Link href={`/orgs/${a.orgId}`} className="font-bold text-ink hover:text-link">{a.name}</Link>
+                    <p className="text-meta text-ink-3">{a.detail}</p>
+                  </div>
+                  {a.right
+                    ? <span className="ml-auto font-bold text-ink tabular-nums whitespace-nowrap">{a.right}</span>
+                    : <GoLink href={a.href} className="ml-auto whitespace-nowrap">{a.action}</GoLink>}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-body text-ink-3">Every role is within its seat count.</p>
+            <p className="text-body text-ink-3">Nothing needs attention. Every role is within its seat count and no licence ends in the next 30 days.</p>
           )}
         </Section>
 
-        <Section title="Licences ending soon" note="Inside 30 days, active only.">
-          {data.endingSoon.length ? (
-            <ul className="divide-y divide-rule -my-1">
-              {data.endingSoon.map((r) => {
-                const left = daysUntil(r.endDate) ?? 0;
-                return (
-                  <li key={r.orgId} className="py-2 flex items-baseline gap-2 flex-wrap">
-                    <Link href={`/orgs/${r.orgId}/license`} className="font-medium text-signal hover:underline">
-                      {r.orgName}
-                    </Link>
-                    <span className="text-meta text-ink-3">{MODE_LABEL[r.mode]}</span>
-                    <span className="ml-auto flex items-center gap-2">
-                      <span className="tabular-nums text-meta text-ink-3">
-                        {formatDateOnly(r.endDate)}
-                      </span>
-                      {/*
-                        An active licence can already be past its end date — the
-                        job that expires them runs at 02:00 — and this rendered
-                        that as a negative day count.
-                      */}
-                      <Pill tone={left <= 7 ? 'deny' : 'warn'}>
-                        {left < 0 ? `${-left}d overdue` : `${left}d`}
-                      </Pill>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="text-body text-ink-3">Nothing ends in the next 30 days.</p>
-          )}
-        </Section>
-
-        {/*
-          Active-by-mode and the expired total are two different populations, and
-          they sat in one row under one heading as though they summed.
-        */}
-        <Section title="Active licences by mode">
-          <div className="flex flex-wrap gap-4">
-            {modes.length ? modes.map(([mode, n]) => (
-              <div key={mode}>
-                <p className="text-micro uppercase tracking-[0.12em] text-ink-3">{MODE_LABEL[mode]}</p>
-                <p className="text-title font-medium tabular-nums">{formatNumber(n)}</p>
-              </div>
-            )) : <p className="text-body text-ink-3">No active licences.</p>}
-          </div>
-          <p className="text-meta text-ink-3 mt-3 pt-3 border-t border-rule">
-            <span className="tabular-nums">{formatNumber(data.licenses.expired)}</span> expired, not counted above.
-          </p>
-        </Section>
-
-        <Section title="Estate">
-          <div className="flex flex-wrap gap-6">
-            <div>
-              <p className="text-micro uppercase tracking-[0.12em] text-ink-3">Active devices</p>
-              <p className="text-title font-medium tabular-nums">{formatNumber(data.devices.active)}</p>
-            </div>
-          </div>
+        <Section title="Active licences by mode" note="Expired licences are not counted.">
+          <DefList
+            items={[
+              ...modes.map(([mode, n]) => [MODE_LABEL[mode], formatNumber(n)] as [string, string]),
+              ['Expired', formatNumber(data.licenses.expired)],
+            ]}
+          />
+          {!modes.length && <p className="text-body text-ink-3 mt-3">No active licences.</p>}
         </Section>
       </div>
     </div>

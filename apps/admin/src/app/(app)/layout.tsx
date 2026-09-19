@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { ScopeGuard } from '@/components/ScopeGuard';
 import { SessionProvider } from '@/lib/session';
 
 /**
@@ -13,7 +14,9 @@ export const dynamic = 'force-dynamic';
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <SessionProvider>
-      <AppShell>{children}</AppShell>
+      <ScopeGuard>
+        <AppShell>{children}</AppShell>
+      </ScopeGuard>
     </SessionProvider>
   );
 }

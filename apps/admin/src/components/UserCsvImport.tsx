@@ -6,17 +6,15 @@ import type {
   ImportPreview, ImportResult, Organization, Paged, UserRow,
 } from '@/lib/types';
 import { Modal } from './Modal';
-import { Button, ErrorNote, Field, Note, Pill, Select, TextArea, TextInput } from './ui';
+import { Button, ErrorNote, Field, InfoBanner, Note, Select, TextArea, TextInput } from './ui';
 
 /**
  * Two-step import, both steps server-side.
  *
  * The preview is built by `POST /admin/users/import/preview`, which writes
  * nothing and returns a plan plus an integrity token; the commit applies
- * exactly that plan in one transaction. Doing the diff in the browser and
- * firing the writes row by row would half-apply a file the moment one row hit
- * the global unique on email — the preview exists so the operator sees the
- * conflict and can cancel before anything is written. The preview step is
+ * exactly that plan in one transaction. The preview exists so the operator
+ * sees a conflict and can cancel before anything is written, and is
  * deliberately not skippable.
  */
 export function UserCsvImport({ open, orgId, onClose, onImported }: {
@@ -129,8 +127,7 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
       return;
     }
 
-    // Disabling absentees is a separate, explicitly armed step. It cannot
-    // collide with the global unique the way a create can, and each disable
+    // Disabling absentees is a separate, explicitly armed step. Each disable
     // writes its own audit entry with the reason below.
     let disabled = 0;
     if (armed) {
@@ -153,12 +150,31 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
     onImported();
   }
 
+  const footer = stage === 'input' ? (
+    <>
+      <Button onClick={onClose}>Cancel</Button>
+      <Button variant="primary" onClick={runPreview} disabled={busy || !targetOrg || !text.trim()}>
+        {busy ? 'Checking…' : 'Preview changes'}
+      </Button>
+    </>
+  ) : stage === 'preview' ? (
+    <>
+      <Button variant="ghost" onClick={() => setStage('input')} disabled={busy}>Back</Button>
+      <Button onClick={onClose} disabled={busy}>Cancel</Button>
+      <Button variant="primary" onClick={commit} disabled={busy || applyCount === 0}>
+        {busy ? 'Applying…' : `Apply ${applyCount} change${applyCount === 1 ? '' : 's'}`}
+      </Button>
+    </>
+  ) : (
+    <Button variant="primary" onClick={onClose}>Done</Button>
+  );
+
   return (
-    <Modal open={open} title="Import users from CSV" onClose={onClose} wide>
+    <Modal open={open} title="Import users from CSV" onClose={onClose} wide footer={footer}>
       {error && <ErrorNote>{error}</ErrorNote>}
 
       {stage === 'input' && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {!orgId && (
             <Field label="Organisation">
               <Select value={org} onChange={(e) => setOrg(e.target.value)}>
@@ -181,96 +197,81 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
                 setFileName(file.name);
                 setText(await file.text());
               }}
-              className="text-body"
+              className="block text-body"
             />
           </Field>
 
-          <Field label="…or paste it">
+          <Field label="Or paste it">
             <TextArea
               rows={8}
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={'email,display_name,role\nj.smith@acme.com,Jane Smith,user\nk.patel@acme.com,Kiran Patel,admin'}
-              className="font-mono !text-meta"
+              className="font-mono !text-small"
             />
           </Field>
 
-          <Note>
-            No member is changed by this step — the server reads the file and hands back a plan to approve.
-          </Note>
-
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" onClick={runPreview} disabled={busy || !targetOrg || !text.trim()}>
-              {busy ? 'Checking…' : 'Preview changes'}
-            </Button>
-          </div>
+          <Note>No member is changed by this step. The server reads the file and hands back a plan to approve.</Note>
         </div>
       )}
 
       {stage === 'preview' && preview && (
-        <div className="space-y-4">
-          <div className="grid sm:grid-cols-5 gap-2">
-            <Tally symbol="+" tone="allow" n={grouped.create.length} label="new users" />
-            <Tally symbol="~" tone="warn" n={grouped.update.length} label="changes" />
-            <Tally symbol="!" tone="deny" n={grouped.conflict.length} label="conflicts" />
-            <Tally symbol="✗" tone="deny" n={grouped.invalid.length} label="unusable rows" />
-            <Tally symbol="=" tone="neutral" n={grouped.unchanged.length} label="unchanged" />
+        <div className="space-y-5">
+          <div className="grid sm:grid-cols-5 gap-3">
+            <Tally n={grouped.create.length} label="new users" />
+            <Tally n={grouped.update.length} label="changes" />
+            <Tally n={grouped.conflict.length} label="conflicts" attention />
+            <Tally n={grouped.invalid.length} label="unusable rows" attention />
+            <Tally n={grouped.unchanged.length} label="unchanged" />
           </div>
 
           {/*
-            What this plan asks of the licence. Seats were checked only at
-            commit time, so a file with more people than seats looked entirely
-            fine here and quietly dropped the overflow on the next screen.
+            What this plan asks of the licence. Seats were once checked only at
+            commit time, so a file with more people than seats looked fine here
+            and quietly dropped the overflow on the next screen.
           */}
           {preview.seatForecast && preview.seatForecast.length > 0 && (
-            <div className="border border-rule rounded-sm p-3">
-              <p className="text-micro uppercase tracking-[0.1em] text-ink-3 mb-1.5">Seats this asks for</p>
-              <ul className="text-meta space-y-1">
+            <div className="border border-rule rounded-sm p-4">
+              <p className="text-meta font-bold text-ink mb-2">Seats this asks for</p>
+              <ul className="text-small space-y-1">
                 {preview.seatForecast.map((f) => (
                   <li key={f.roleKey} className="tabular-nums">
                     <span className="text-ink">{f.roleName}</span>
                     {' — '}{f.wanted} needed, {f.free} free of {f.seats}
-                    {f.shortfall > 0 && (
-                      <span className="text-warn font-medium">
-                        {' · '}{f.shortfall} will not get one
-                      </span>
-                    )}
+                    {f.shortfall > 0 && <b className="text-ink">{' · '}{f.shortfall} will not get one</b>}
                   </li>
                 ))}
               </ul>
               {preview.seatForecast.some((f) => f.shortfall > 0) && (
                 <p className="text-meta text-ink-2 mt-2">
-                  Raise the count on the Licence tab first, or apply now and import the rest later —
-                  everyone who fits is still added. Counted as things stand; nothing is reserved until you apply.
+                  Raise the count on the Licence tab first, or apply now and import the rest later.
+                  Everyone who fits is still added. Counted as things stand; nothing is reserved until you apply.
                 </p>
               )}
             </div>
           )}
 
           {grouped.conflict.length > 0 && (
-            <div className="border border-deny/40 bg-deny-soft/50 rounded-sm p-3">
-              <p className="text-micro uppercase tracking-[0.1em] text-deny mb-1">
-                Conflicts — these rows are skipped
-              </p>
-              <ul className="text-meta space-y-1">
+            <InfoBanner className="!mb-0">
+              <b>Conflicts. These rows are skipped.</b>
+              <ul className="text-small mt-1 space-y-1">
                 {grouped.conflict.map((r) => (
                   <li key={`${r.line}-${r.email}`}>
                     line {r.line}: {r.email} — {r.message ?? 'already belongs to another organisation'}
                   </li>
                 ))}
               </ul>
-              <p className="text-meta text-ink-2 mt-2">
+              <p className="text-meta mt-2">
                 One person belongs to exactly one organisation, and an import never moves anybody between
                 them. These rows are left alone whatever you do next.
               </p>
-            </div>
+            </InfoBanner>
           )}
 
           {grouped.update.length > 0 && (
             <div>
-              <p className="text-micro uppercase tracking-[0.1em] text-ink-3 mb-1">Changes</p>
-              <ul className="text-meta space-y-1">
+              <p className="text-meta font-bold text-ink mb-1">Changes</p>
+              <ul className="text-small space-y-1">
                 {grouped.update.map((r) => {
                   const current = r.existingUserId ? byId.get(r.existingUserId) : undefined;
                   const roleChanged = current && r.roleKey && current.roleKey !== r.roleKey;
@@ -278,16 +279,7 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
                     <li key={`${r.line}-${r.email}`}>
                       {r.email}
                       {roleChanged ? (
-                        <>
-                          {' '}<span className="text-ink-3">{current!.roleKey} →</span>{' '}
-                          {/*
-                            No colour judgement. With configurable roles there
-                            is no general "promotion" or "demotion" to signal —
-                            the old rule painted admin→user red, which means
-                            nothing once a customer has five roles.
-                          */}
-                          <b className="text-signal">{r.roleKey}</b>
-                        </>
+                        <>{' '}<span className="text-ink-3">{current!.roleKey} →</span>{' '}<b>{r.roleKey}</b></>
                       ) : (
                         <span className="text-ink-3"> · details updated</span>
                       )}
@@ -300,8 +292,8 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
 
           {grouped.invalid.length > 0 && (
             <div>
-              <p className="text-micro uppercase tracking-[0.1em] text-ink-3 mb-1">Unusable rows — skipped</p>
-              <ul className="text-meta space-y-1 text-deny">
+              <p className="text-meta font-bold text-ink mb-1">Unusable rows, skipped</p>
+              <ul className="text-small space-y-1 text-ink-2">
                 {grouped.invalid.map((r) => (
                   <li key={`${r.line}-${r.email}`}>
                     line {r.line}: {r.email || '(blank)'} — {r.message ?? 'could not be read'}
@@ -313,10 +305,10 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
 
           {grouped.create.length > 0 && (
             <details>
-              <summary className="text-micro uppercase tracking-[0.1em] text-ink-3 cursor-pointer">
+              <summary className="text-meta font-bold text-ink cursor-pointer">
                 New users ({grouped.create.length})
               </summary>
-              <ul className="text-meta mt-1 space-y-0.5">
+              <ul className="text-small mt-1 space-y-0.5">
                 {grouped.create.map((r) => (
                   <li key={`${r.line}-${r.email}`}>
                     {r.email}{r.roleKey ? ` · ${r.roleKey}` : ''}
@@ -326,13 +318,13 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
             </details>
           )}
 
-          <div className="border border-rule rounded-sm p-3 bg-paper-2">
+          <div className="border border-rule rounded-sm p-4 bg-paper-2">
             <p className="text-body mb-2">
               <b>{absent.length}</b> active member{absent.length === 1 ? '' : 's'} of this organisation
               {absent.length === 1 ? ' is' : ' are'} not in the file. By default they are
               {' '}<b>left exactly as they are</b>.
             </p>
-            <label className="flex items-start gap-2 text-body">
+            <label className="flex items-start gap-3 text-body">
               <input
                 type="checkbox"
                 checked={replaceAll}
@@ -341,7 +333,7 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
                 disabled={absent.length === 0}
               />
               <span>
-                Replace the entire list — disable everyone absent from this file.
+                Replace the entire list: disable everyone absent from this file.
                 <span className="block text-ink-3 text-meta">
                   Runs after the import as {absent.length} separate disable{absent.length === 1 ? '' : 's'}, each with
                   its own audit entry. Nobody is ever deleted.
@@ -349,95 +341,62 @@ export function UserCsvImport({ open, orgId, onClose, onImported }: {
               </span>
             </label>
             {replaceAll && (
-              <div className="mt-2 max-w-[260px]">
+              <div className="mt-3 max-w-[260px]">
                 <Field label="Type REPLACE to arm this">
                   <TextInput
                     value={replaceConfirm}
                     onChange={(e) => setReplaceConfirm(e.target.value)}
-                   
                     placeholder="REPLACE"
                   />
                 </Field>
               </div>
             )}
           </div>
-
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setStage('input')} disabled={busy}>Back</Button>
-            <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-            <Button variant="primary" onClick={commit} disabled={busy || applyCount === 0}>
-              {busy ? 'Applying…' : `Apply ${applyCount} change${applyCount === 1 ? '' : 's'}`}
-            </Button>
-          </div>
         </div>
       )}
 
       {stage === 'done' && result && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <p className="text-body">
             <b>{result.created}</b> created · <b>{result.updated}</b> updated
             {result.disabled > 0 && <> · <b>{result.disabled}</b> disabled</>}
-            {(result.skippedNoSeat ?? 0) > 0 && (
-              <> · <b className="text-warn">{result.skippedNoSeat}</b> given no seat</>
-            )}
+            {(result.skippedNoSeat ?? 0) > 0 && <> · <b>{result.skippedNoSeat}</b> given no seat</>}
           </p>
 
-          {/*
-            The server has always returned `skipped`, and this panel has always
-            ignored it — so an import of 50 people into 10 free seats reported
-            "10 created" and said nothing at all about the other 40. Name them:
-            they are the whole reason the number differs from the button.
-          */}
           {result.skipped && result.skipped.length > 0 && (
-            <div className="border border-warn/40 bg-warn-soft/50 rounded-sm p-3">
-              <p className="text-micro uppercase tracking-[0.1em] text-warn mb-1">
-                No free seat — these people were not added
-              </p>
-              <ul className="text-meta space-y-1">
+            <InfoBanner className="!mb-0">
+              <b>No free seat. These people were not added.</b>
+              <ul className="text-small mt-1 space-y-1">
                 {result.skipped.map((s) => <li key={s.email}>{s.email} — {s.reason}</li>)}
               </ul>
-              <p className="text-meta text-ink-2 mt-2">
+              <p className="text-meta mt-2">
                 Raise the seat count on the licence, then import the same file again. Everyone already
                 added is left alone.
               </p>
-            </div>
+            </InfoBanner>
           )}
 
           {result.failed.length > 0 && (
-            <div>
-              <p className="text-deny text-body mb-1">
-                {result.failed.length} disable{result.failed.length === 1 ? '' : 's'} failed:
-              </p>
-              <ul className="text-meta text-deny space-y-0.5">
-                {result.failed.map((f) => <li key={f}>{f}</li>)}
-              </ul>
-            </div>
+            <ErrorNote>
+              {result.failed.length} disable{result.failed.length === 1 ? '' : 's'} failed: {result.failed.join('; ')}
+            </ErrorNote>
           )}
           <Note>
             Written as one transaction, with a{' '}
             <code className="font-mono">user.import_commit</code> audit entry naming everyone created,
             updated or refused a seat.
           </Note>
-          <div className="flex justify-end">
-            <Button variant="primary" onClick={onClose}>Done</Button>
-          </div>
         </div>
       )}
     </Modal>
   );
 }
 
-function Tally({ symbol, n, label, tone }: {
-  symbol: string; n: number; label: string; tone: 'allow' | 'warn' | 'deny' | 'neutral';
-}) {
+function Tally({ n, label, attention }: { n: number; label: string; attention?: boolean }) {
   return (
-    <div className="border border-rule rounded-sm px-3 py-2 bg-card">
-      <p className="flex items-baseline gap-1.5">
-        <Pill tone={n === 0 ? 'neutral' : tone}>{symbol}</Pill>
-        <span className="font-semibold text-page tabular-nums">{n}</span>
-      </p>
-      <p className="text-meta text-ink-3 mt-0.5">{label}</p>
+    <div className="border border-rule rounded-sm px-4 py-3 bg-card">
+      <p className={`text-page tabular-nums ${attention && n > 0 ? 'font-extrabold' : 'font-bold'} text-ink`}>{n}</p>
+      <p className="text-meta text-ink-3">{label}</p>
     </div>
   );
 }
-

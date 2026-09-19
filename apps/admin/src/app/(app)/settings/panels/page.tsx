@@ -5,7 +5,7 @@ import { api, errorMessage } from '@/lib/api';
 import { useCan } from '@/lib/session';
 import type { PanelDefinition } from '@/lib/types';
 import { DataTable, type Column } from '@/components/DataTable';
-import { Button, ErrorNote, Field, FieldRow, Note, Pill, Section, TextInput, Toggle } from '@/components/ui';
+import { Button, ErrorNote, Field, FieldRow, Note, Section, TextInput, Toggle } from '@/components/ui';
 
 export default function PanelsPage() {
   const canManage = useCan('panel.manage');
@@ -55,38 +55,36 @@ export default function PanelsPage() {
   }
 
   const columns: Column<PanelDefinition>[] = [
-    { key: 'slug', header: 'Slug', cell: (r) => <span className="font-mono text-meta">{r.slug}</span>, csv: (r) => r.slug },
+    { key: 'slug', header: 'Slug', cell: (r) => <span className="font-mono text-small">{r.slug}</span>, csv: (r) => r.slug },
     { key: 'label', header: 'Label', cell: (r) => r.label, csv: (r) => r.label },
     {
       key: 'description', header: 'Description',
-      cell: (r) => <span className="text-ink-2">{r.description ?? '—'}</span>,
+      cell: (r) => <span className="text-ink-3">{r.description ?? '—'}</span>,
       csv: (r) => r.description ?? '',
     },
     {
       key: 'order', header: 'Order', optional: true,
-      cell: (r) => <span className="tabular-nums text-meta">{r.sortOrder}</span>,
+      cell: (r) => <span className="tabular-nums text-ink-3">{r.sortOrder}</span>,
       csv: (r) => String(r.sortOrder),
     },
     {
       key: 'active', header: 'Assignable',
       // A never-gated panel has no meaningful toggle: it is on every licence by
-      // definition, and the API refuses to deactivate it. Showing a disabled
-      // switch would invite the click and then explain the refusal; showing the
-      // reason instead answers the question before it is asked.
+      // definition, and the API refuses to deactivate it. Say so instead.
       cell: (r) => {
         if (r.neverGated) {
-          return <Pill tone="allow" title="Carries About, Updates and Sign in">Always on</Pill>;
+          return <span className="text-ink-3" title="Carries About, Updates and Sign in">Always on</span>;
         }
         return canManage
           ? <Toggle checked={r.isActive} onChange={(next) => toggle(r, next)} label={`${r.slug} assignable`} />
-          : <span className="text-micro uppercase tracking-wider text-ink-3">{r.isActive ? 'on' : 'off'}</span>;
+          : <span className="text-ink-3">{r.isActive ? 'On' : 'Off'}</span>;
       },
       csv: (r) => (r.neverGated ? 'always' : String(r.isActive)),
     },
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {error && <ErrorNote>{error}</ErrorNote>}
 
       <Section
@@ -95,7 +93,7 @@ export default function PanelsPage() {
           <>
             These slugs are the contract with the shipped add-in. A licence assigns slugs to the user and admin roles,
             the token carries the resolved list, and the add-in only asks{' '}
-            <code className="font-mono">HasPanel(&quot;cleanup&quot;)</code> — it never maps a role to visibility.
+            <code className="font-mono">HasPanel(&quot;cleanup&quot;)</code>. It never maps a role to visibility.
           </>
         }
       >
@@ -105,6 +103,7 @@ export default function PanelsPage() {
           rowKey={(r) => r.slug}
           loading={loading}
           csvName="panels"
+          noun="panels"
           empty={{
             title: 'No panels defined',
             body: 'Until a slug exists here, no licence can assign a panel and the add-in ribbon stays empty. Add the slugs compiled into the current DLL.',
@@ -118,7 +117,7 @@ export default function PanelsPage() {
 
       {canManage && (
         <Section title="Add a panel">
-          <form onSubmit={create} className="space-y-3">
+          <form onSubmit={create} className="space-y-4">
             <FieldRow cols={3}>
               <Field label="Slug" hint="lowercase snake_case, matching the DLL constant.">
                 <TextInput value={slug} onChange={(e) => setSlug(e.target.value)} className="font-mono" placeholder="coordination" required />
