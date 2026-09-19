@@ -47,6 +47,10 @@ export type SessionUser = {
   role: PortalRole;
   totpEnabled: boolean;
   totpResetRequired: boolean;
+  totpEnrolledAt: string | null;
+  lastLoginAt: string | null;
+  lastLoginIp: string | null;
+  createdAt: string;
 };
 
 export type PortalUserRow = {

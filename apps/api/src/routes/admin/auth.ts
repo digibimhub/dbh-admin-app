@@ -41,6 +41,11 @@ const LOCKOUT_MS = 15 * 60 * 1000;
 
 type PortalUserRow = typeof s.portalUsers.$inferSelect;
 
+/**
+ * What the portal may know about the person holding the session. The account
+ * page shows all of it; nothing here is a secret or a credential. Sign-in
+ * history is included so somebody can notice a login they did not make.
+ */
 function publicUser(u: PortalUserRow) {
   return {
     id: u.id,
@@ -49,6 +54,10 @@ function publicUser(u: PortalUserRow) {
     role: u.role,
     totpEnabled: u.totpEnabled,
     totpResetRequired: u.totpResetRequired,
+    totpEnrolledAt: u.totpEnrolledAt,
+    lastLoginAt: u.lastLoginAt,
+    lastLoginIp: u.lastLoginIp,
+    createdAt: u.createdAt,
   };
 }
 
