@@ -4,7 +4,7 @@ import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { db, schema as s } from '@app/db';
 import {
   apsConfigured, authorizeUrl, encryptAtRest, exchangeCode,
-  fetchUserInfo, getApsConfig, mismatchedRevitAccount, pkceChallenge, pkceVerifier,
+  fetchUserInfo, getApsConfig, pkceChallenge, pkceVerifier,
   randomToken, resolveUser, sha256Hex, type AutodeskIdentity,
 } from '@app/core';
 import { authExchangeSchema, authStartSchema, deviceInfoSchema, type DeviceInfo } from '@app/shared';
@@ -15,6 +15,7 @@ import { dbResolveDeps, backfillIdentity } from '../../lib/resolve-deps';
 import {
   recordGrant, signAccessToken, SESSION_IDLE_MS, SESSION_MAX_MS,
 } from '../../lib/addin-grant';
+import { logRevitAccountCheck } from '../../lib/revit-account-log';
 import { clientIpOrNull } from '../../middleware/ratelimit';
 
 export const addinAuth = new Hono();
@@ -127,7 +128,7 @@ addinAuth.get('/callback', async (c) => {
   // makes somebody a pending member of an organisation. Resolving first would
   // enrol the browser's account into the org of a user who never asked for it,
   // purely because they happened to be signed in on that machine.
-  const result = mismatchedRevitAccount(stored.revitLoginUserId, info.sub)
+  const result = logRevitAccountCheck('callback', stored.revitLoginUserId, info.sub, info.email)
     ? ({ ok: false, code: 'revit_account_mismatch' } as const)
     : await resolveUser(identity, device, dbResolveDeps());
 
@@ -200,7 +201,7 @@ addinAuth.post('/exchange', async (c) => {
     // the callback. A mismatch is not one of those things — nobody can approve
     // it away — so leaving it to the re-resolve alone would let the exchange
     // grant a session the callback had already refused.
-    if (mismatchedRevitAccount(payload.revitLoginUserId, identity.autodeskId)) {
+    if (logRevitAccountCheck('exchange', payload.revitLoginUserId, identity.autodeskId, identity.email)) {
       return c.json(denial('revit_account_mismatch'));
     }
 

@@ -125,6 +125,15 @@ export const tokenRefreshSchema = z.object({
   refreshToken: z.string().min(20),
   device: deviceInfoSchema,
   daysSinceLastSuccess: z.number().int().min(0).max(3650).default(0),
+  /**
+   * The same `Application.LoginUserId` as on `/v1/auth/start`, compared at
+   * every refresh against the member's stored `autodesk_id`. Sign-in proves
+   * the pair once; this keeps it true — Revit can be signed in to somebody
+   * else tomorrow while the session cached yesterday is still valid. Same
+   * rules: optional, absent means "cannot check", and a mismatch is a denial
+   * that neither rotates nor revokes.
+   */
+  revitLoginUserId: z.string().trim().min(1).max(128).optional(),
 });
 
 export const addinTokenClaims = z.object({

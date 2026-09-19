@@ -12,6 +12,7 @@ import {
   recordGrant, signAccessToken, REFRESH_REPLAY_MS, SESSION_IDLE_MS,
 } from '../../lib/addin-grant';
 import { clientIpOrNull } from '../../middleware/ratelimit';
+import { logRevitAccountCheck } from '../../lib/revit-account-log';
 
 export const addinValidate = new Hono();
 
@@ -101,6 +102,20 @@ addinValidate.post('/refresh', async (c) => {
     const [user] = await tx.select().from(s.orgUsers)
       .where(eq(s.orgUsers.id, session.orgUserId)).limit(1);
     if (!user) return denial('invalid_token');
+
+    // --- 1a. still the same person? --------------------------------------
+    // Sign-in proved the browser and Revit were one account; this keeps it
+    // true. Revit can be signed in to somebody else today while yesterday's
+    // cached session is still valid, and without this the licence would follow
+    // the session rather than the person. Same shape as the sign-in check:
+    // absent means "cannot check", a member with no autodesk_id (an operator
+    // import that has never signed in) has nothing to compare against, and a
+    // mismatch is a denial — nothing rotates or is revoked, so signing Revit
+    // back in as the right account restores access at the next check.
+    if (body.revitLoginUserId && user.autodeskId
+      && logRevitAccountCheck('refresh', body.revitLoginUserId, user.autodeskId, user.email)) {
+      return denial('revit_account_mismatch');
+    }
 
     // --- 2. re-resolve ---------------------------------------------------
     const identity: AutodeskIdentity = {

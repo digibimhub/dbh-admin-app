@@ -31,6 +31,9 @@ Revit add-in retrofit here. That is a separate application.
 - `pnpm smoke` spends 4 of the 5-per-15-minutes-per-email login budget. Two
   runs inside one window trip the rate limiter; restart the API (the limiter
   is in-memory) rather than concluding login is broken.
+- **Pointing `DATABASE_URL` at the cloud database** has prerequisites that are
+  not obvious and one boot-time write that can break production. Load the
+  `cloud-db-local-run` skill first.
 
 ## Database
 
@@ -170,7 +173,8 @@ The add-in gates features on SCOPES and never on a role. See `docs/scopes.md`.
 ## Add-in sessions — do not sign people out
 
 A Revit user losing their session mid-model is worse than almost any other
-failure here. See `docs/addin-auth.md`.
+failure here. See `docs/addin-auth.md`, and `docs/ADDIN-INTEGRATION.md` for
+the contract the add-in codes against.
 
 - Refresh tokens rotate on every successful validation, and the previous hash
   is kept with a **60-second replay window**. A stale token inside that window
